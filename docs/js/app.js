@@ -1,17 +1,17 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js';
-import { comSinal } from './dados.js';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.7';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.7';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.7';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.7';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.7';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.7';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.7';
+import { comSinal } from './dados.js?v=0.7';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.7';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.7';
 
-const VERSAO = '0.6';
+const VERSAO = '0.7';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -77,9 +77,10 @@ let janela = null;     // janela "Rolagens" (histórico)
 let janelaDado = null; // janela do dado: ataque primeiro, dano depois
 
 // Dados 3D (os mesmos da Ficha Arcana), no canto de cima do tabuleiro, para todos.
+const minhasRolagens = new Set(); // ids das rolagens feitas neste aparelho (a animação delas fica na janela do dado)
 function animar(e) {
   const a = e?.dados3d;
-  if (!a?.dice?.length || !diceAnimationsEnabled()) return;
+  if (!a?.dice?.length || !diceAnimationsEnabled() || minhasRolagens.has(e.id)) return;
   animateDice(a.dice, { label: e.titulo, total: a.total, subtitle: a.subtitle, natural: a.natural, kind: a.kind,
     criticalThreshold: a.criticalThreshold, alvo: $('#dados3d'), quem: e.quem }).catch(() => {});
 }
@@ -94,7 +95,16 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
   $('#mesa').hidden = false;
   tab = criarTabuleiro($('#tela'), eventos);
   janela = criarJanelaRolagens($('#rolagens'), opcoesRolagens);
-  janelaDado = criarJanelaDado($('#dado'));
+  janelaDado = criarJanelaDado($('#dado'), {
+    // a janela do dado avisa quando rolou: anima ali dentro e não repete no canto
+    aoRolar: (p, palco) => {
+      minhasRolagens.add(p.id);
+      let a = null; try { a = animacaoDoPedido(p); } catch {}
+      if (!a?.dice?.length || !diceAnimationsEnabled()) return false;
+      animateDice(a.dice, { label: p.titulo, total: a.total, subtitle: a.subtitle, natural: a.natural, kind: a.kind, criticalThreshold: a.criticalThreshold, alvo: palco }).catch(() => {});
+      return true;
+    },
+  });
   $('#btn-3d').addEventListener('click', () => {
     setDiceAnimations(!diceAnimationsEnabled()); atualizarBotao3d();
     avisar(diceAnimationsEnabled() ? 'Dados 3D ligados.' : 'Dados 3D desligados: os resultados aparecem na hora.');
@@ -141,7 +151,8 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
 // =====================================================================
 // combate: { cenaId, ordem: [{ id, ini }], vezId, rodada, andou: { tokenId: metros } }
 // fichas: a última ficha que cada jogador carregou (para criar o token dele em outras cenas)
-const M = { codigo: null, cenas: [], aberta: null, ativa: null, conhecidos: {}, combate: null, fichas: {} };
+// galeria: tokens que o mestre subiu ({ id, nome, img, dono }); bloqueados: jogadores expulsos
+const M = { codigo: null, cenas: [], aberta: null, ativa: null, conhecidos: {}, combate: null, fichas: {}, galeria: [], bloqueados: {} };
 let sala = null, abaMestre = 'cenas', salvarTimer = null, escolherFerramenta = null, rascunhoNovo = null;
 const envios = new Map(); // jogadorId -> { fila: Promise, texto }
 
@@ -152,7 +163,7 @@ function novaCena(nome) {
     tokens: [], imagens: [],
   };
 }
-function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; } M.fichas ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
+function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
 const cenaAberta = () => M.cenas.find(c => c.id === M.aberta) || M.cenas[0];
 const cenaAtiva = () => M.cenas.find(c => c.id === M.ativa) || null;
 const salvar = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => guardar('dados', 'mestre', M).catch(e => avisar('Não consegui salvar: ' + e.message, true)), 300); };
@@ -171,11 +182,15 @@ function tokenParaJogador(t) {
   } else c.estado = estadoDe(t.pv, t.pvMax);
   return c;
 }
+// está conectado agora?
+const online = id => !!id && [...(sala?.jogadores.values() || [])].some(j => j.id === id);
+// os jogadores só veem tokens visíveis e, se o token tem dono, só enquanto o dono está conectado
+const visivelParaJogadores = t => !t.oculto && (!t.dono || online(t.dono));
 function cenaParaJogador(cena, j) {
   return {
     id: cena.id, nome: cena.nome, colunas: cena.colunas, linhas: cena.linhas, fundo: cena.fundo, grade: cena.grade,
     mapa: cena.mapa ? { hash: j.celular ? cena.mapa.leve : cena.mapa.hash, w: cena.mapa.w, h: cena.mapa.h } : null,
-    tokens: cena.tokens.filter(t => !t.oculto).map(tokenParaJogador),
+    tokens: cena.tokens.filter(visivelParaJogadores).map(tokenParaJogador),
     dificil: cena.dificil || [],
     imagens: (cena.imagens || []).filter(i => !i.oculto).map(i => ({
       id: i.id, hash: j.celular ? i.leve : i.hash, w: i.w, h: i.h, x: i.x, y: i.y, largura: i.largura, rot: i.rot, camada: i.camada,
@@ -188,7 +203,7 @@ function enviarCena() {
 }
 function enviarToken(cena, t, removido = false) {
   if (!sala || cena.id !== M.ativa) return;
-  if (removido || t.oculto) sala.paraTodos({ t: 'tok-fora', id: t.id });
+  if (removido || !visivelParaJogadores(t)) sala.paraTodos({ t: 'tok-fora', id: t.id });
   else sala.paraTodos({ t: 'tok', tok: tokenParaJogador(t) });
 }
 // mudanças de imagem: manda a cena (só se for a que os jogadores estão vendo)
@@ -207,7 +222,7 @@ function ordenarCombate() {
 function combateParaJogadores() {
   const cb = M.combate, c = cenaDoCombate();
   if (!cb || !c || c.id !== M.ativa) return null;
-  const visiveis = new Map(c.tokens.filter(t => !t.oculto).map(t => [t.id, t]));
+  const visiveis = new Map(c.tokens.filter(visivelParaJogadores).map(t => [t.id, t]));
   return {
     rodada: cb.rodada, vezId: visiveis.has(cb.vezId) ? cb.vezId : null,
     ordem: cb.ordem.filter(o => visiveis.has(o.id)).map(o => ({ id: o.id, nome: visiveis.get(o.id).nome, ini: o.ini })),
@@ -307,6 +322,11 @@ function resolverPedido(p, autor, atacante, alvo, secreta = false) {
     else if (ataque?.errou) e.resultado = { texto: 'O ataque errou: dano não aplicado', classe: 'erro' };
     else if (alvo) e.resultado = { texto: 'O mestre aplica (inteiro ou metade)', classe: '' };
   }
+  // iniciativa: só entra na ordem do combate (sem registro nas rolagens e sem animação para os outros)
+  if (p.tipo === 'iniciativa') {
+    if (atacante && M.combate?.ordem.some(o => o.id === atacante.id)) definirIniciativa(atacante.id, p.d20.total);
+    return { ...e, secreta: true };
+  }
   const entrada = postar(e, { secreta });
   if (aplicarSozinho) aplicarDano(entrada, 1);
   // iniciativa entra sozinha no combate
@@ -404,7 +424,11 @@ async function iniciarMestre() {
       if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'mov', id: t.id, x, y });
       registrarMovimento(cenaAberta(), t, x0, y0);
     },
-    extraDoToken: t => (M.combate?.cenaId === cenaAberta().id ? extraDoToken(t, M.combate, true) : null),
+    extraDoToken: t => {
+      const extra = M.combate?.cenaId === cenaAberta().id ? extraDoToken(t, M.combate, true) : null;
+      return t.dono && !online(t.dono) ? { ...(extra || {}), texto: 'offline', alerta: false } : extra;
+    },
+    apagado: t => !!t.dono && !online(t.dono),
     limiteMovimento: t => (M.combate?.cenaId === cenaAberta().id && M.combate.ordem.some(o => o.id === t.id) && t.desloc ? { andou: M.combate.andou[t.id] || 0, desloc: t.desloc } : null),
     aoPintarTerreno: (chave, pintar) => {
       const c = cenaAberta(), s = new Set(c.dificil || []);
@@ -464,16 +488,23 @@ function ligarSala() {
     aoAbrir: () => atualizarStatusMestre(),
     aoErro: t => definirStatus(t, 'off'),
     aoEntrar: j => {
+      if (M.bloqueados[j.id]) { sala.enviar(j, { t: 'expulso' }); setTimeout(() => { try { j.conn.close(); } catch {} }, 400); return; }
       M.conhecidos[j.id] = { nome: j.nome, cor: j.cor };
       salvar();
       const c = cenaAtiva();
       sala.enviar(j, { t: 'bemvindo', versao: VERSAO, cena: c ? cenaParaJogador(c, j) : null });
       sala.enviar(j, { t: 'combate', combate: combateParaJogadores() });
       for (const e of historico.slice(-15)) sala.enviar(j, { t: 'rolagem', e: paraJogadores(e), antiga: true }); // sem animação
+      sala.enviar(j, { t: 'galeria', itens: galeriaPara(j) });
       avisar(`${j.nome} entrou na mesa.`);
+      enviarCena(); enviarCombate(); tab.redesenhar(); // o token dele volta a aparecer para os outros
       atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas', 'tokens');
     },
-    aoSair: j => { avisar(`${j.nome} saiu.`); envios.delete(j.id); atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas'); },
+    aoSair: j => {
+      avisar(`${j.nome} saiu.`); envios.delete(j.id);
+      enviarCena(); enviarCombate(); tab.redesenhar(); // o token dele some para os outros
+      atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas');
+    },
     aoMensagem: (j, msg) => tratarMensagemDoJogador(j, msg),
     aoFalha: () => avisar('Alguém tentou entrar, mas a internet bloqueou o caminho até você. Ligue a ponte em Ajustes › Conexão.', true),
   });
@@ -508,6 +539,8 @@ function tratarMensagemDoJogador(j, msg) {
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens', 'combate');
     avisar(`${j.nome} carregou a ficha de ${f.nome}.`);
+  } else if (msg.t === 'galeria-escolher') {
+    escolhaDaGaleria(j, msg.id ? String(msg.id).slice(0, 64) : null);
   } else if (msg.t === 'meu-token' && c) {
     const t = c.tokens.find(x => x.id === msg.id && x.dono === j.id); if (!t) return;
     const v = inteiro(msg.valor, 0, 9999, 0);
@@ -554,6 +587,7 @@ function tratarMensagemDoJogador(j, msg) {
       tam: 1, pv: 0, pvMax: 0, dono: j.id, oculto: false, img: null, x: inteiro(msg.x, -500, 5000), y: inteiro(msg.y, -500, 5000) };
     // se o jogador já carregou a ficha antes, o token novo já nasce com os números dela
     if (M.fichas[j.id] && !c.tokens.some(x => x.dono === j.id)) aplicarFichaNoToken(t, M.fichas[j.id]);
+    const escolhido = M.galeria.find(g => g.dono === j.id); if (escolhido) t.img = escolhido.img;
     c.tokens.push(t);
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens');
@@ -639,7 +673,7 @@ function painelCenas() {
       titulo('Cena aberta: ' + c.nome),
       c.id === M.ativa
         ? el('p', { class: 'dica destaque', texto: '✓ Os jogadores estão vendo esta cena.' })
-        : el('button', { class: 'btn primario', texto: 'Levar os jogadores para esta cena', onclick: () => { M.ativa = c.id; salvar(); enviarCena(); desenharPainelMestre(); avisar('Jogadores levados para ' + c.nome + '.'); } }),
+        : el('button', { class: 'btn primario', texto: 'Levar os jogadores para esta cena', onclick: () => levarJogadores(c) }),
       el('div', { class: 'acoes' },
         el('button', { class: 'btn pequeno', texto: c.mapa ? 'Trocar mapa' : 'Escolher mapa', onclick: trocarMapa }),
         c.mapa ? el('button', { class: 'btn pequeno', texto: 'Tirar mapa', onclick: async () => { c.mapa = null; salvar(); await abrirCenaNoTabuleiro(); enviarCena(); limparArquivosSemUso(); desenharPainelMestre(); } }) : null,
@@ -657,8 +691,30 @@ function painelCenas() {
         const s = novaCena(nome.slice(0, 60)); M.cenas.push(s); M.aberta = s.id; salvar(); await abrirCenaNoTabuleiro(); desenharPainelMestre();
       } })),
       lista),
+    el('button', { class: 'btn', texto: '+ Monstro do livro nesta cena', onclick: abrirListaMonstros }),
     el('button', { class: 'btn pequeno', texto: 'Pré-carregar todas as cenas nos jogadores', title: 'Manda os mapas e imagens agora, antes do jogo, para as cenas abrirem na hora.', disabled: !sala?.jogadores.size, onclick: preCarregar }),
   ];
+}
+
+// Leva os jogadores (e os tokens deles) para a cena: os tokens com dono saem das outras cenas
+// e aparecem lado a lado no centro da tela do mestre.
+function levarJogadores(c) {
+  const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
+  let i = 0;
+  for (const outra of M.cenas) {
+    if (outra === c) continue;
+    const deJogadores = outra.tokens.filter(t => t.dono && t.tipo === 'pc');
+    if (!deJogadores.length) continue;
+    outra.tokens = outra.tokens.filter(t => !deJogadores.includes(t));
+    for (const t of deJogadores) {
+      if (c.tokens.some(x => x.id === t.id)) continue;
+      t.x = cel.cx - Math.floor(deJogadores.length / 2) + i++; t.y = cel.cy;
+      c.tokens.push(t);
+    }
+  }
+  M.ativa = c.id; salvar();
+  tab.redesenhar(); enviarCena(); enviarCombate(); desenharPainelMestre();
+  avisar(`Jogadores levados para ${c.nome}${i ? ` com ${i} token(s)` : ''}.`);
 }
 
 function preCarregar() {
@@ -729,6 +785,7 @@ function painelTokens() {
       el('button', { class: 'btn pequeno perigo cresce', texto: '− Dano', onclick: () => mudarPV(-1) }),
       el('button', { class: 'btn pequeno cresce', texto: '+ Cura', onclick: () => mudarPV(1) })) : null,
     el('div', { class: 'linha-campos meio' }, previa,
+      M.galeria.length ? el('button', { class: 'btn pequeno', texto: 'Da galeria', title: 'Usar um token que você subiu na galeria', onclick: () => escolherDaGaleria(img => { rascunho.img = img; previa.src = img; previa.hidden = false; if (t) aplicar(); desenharPainelMestre(); }) }) : null,
       el('button', { class: 'btn pequeno', texto: rascunho.img ? 'Trocar retrato' : 'Retrato', onclick: async () => {
         const arq = await escolherArquivo('image/*'); if (!arq) return;
         try { rascunho.img = await retratoPequeno(arq); previa.src = rascunho.img; previa.hidden = false; if (t) aplicar(); }
@@ -758,7 +815,8 @@ function painelTokens() {
       el('span', { class: 'nome', texto: x.nome }),
       x.tipo === 'pc' ? el('span', { class: 'etiqueta', texto: 'personagem' }) : null,
       x.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${x.pv}/${x.pvMax}` }) : null,
-      botaoOlho(x, () => { salvar(); tab.redesenhar(); enviarToken(c, x); desenharPainelMestre(); }))))
+      botaoOlho(x, () => { salvar(); tab.redesenhar(); enviarToken(c, x); desenharPainelMestre(); }),
+      el('button', { class: 'olho', texto: '🗑', title: 'Excluir token', 'aria-label': 'Excluir ' + x.nome, onclick: e => { e.stopPropagation(); if (confirm(`Excluir o token "${x.nome}"?`)) excluirToken(c, x); } }))))
       : el('p', { class: 'vazio', texto: 'Nenhum token ainda. Preencha acima e coloque no mapa.' }));
   return [form, lista];
 }
@@ -884,7 +942,7 @@ function painelCombate() {
             if (t && t.tipo !== 'pc' && o.ini == null) {
               const p = rolarTeste('Iniciativa', t.ini ?? 0, 'normal', 'iniciativa');
               o.ini = p.d20.total;
-              postar({ quem: t.nome, cor: t.cor, titulo: 'Iniciativa', linhas: linhasDoPedido(p) }, { secreta: true });
+
             }
           }
           ordenarCombate(); salvar(); enviarCombate();
@@ -1028,22 +1086,85 @@ function painelGrade() {
 }
 
 function painelJogadores() {
-  const online = [...(sala?.jogadores.values() || [])];
+  const conectados = new Map([...(sala?.jogadores.values() || [])].map(j => [j.id, j]));
+  const todos = Object.entries(M.conhecidos).map(([id, j]) => ({ id, ...j, conn: conectados.get(id) }));
   const endereco = location.href.split('#')[0].split('?')[0];
+  const tokensDe = id => M.cenas.reduce((n, c) => n + c.tokens.filter(t => t.dono === id).length, 0);
   return [
     el('div', { class: 'bloco' }, titulo('Como os jogadores entram'),
-      el('p', { class: 'dica', texto: `1. Abrem ${endereco}` }),
-      el('p', { class: 'dica', texto: `2. Clicam em "Sou jogador" e digitam o código ${M.codigo}.` }),
-      el('button', { class: 'btn', texto: 'Copiar endereço e código', onclick: () => { navigator.clipboard?.writeText(`${endereco}\nCódigo da sala: ${M.codigo}`); avisar('Copiado.'); } })),
-    el('div', { class: 'bloco cresce' }, titulo(`Conectados agora (${online.length})`),
-      online.length ? el('div', { class: 'lista' }, online.map(j => el('div', { class: 'item' },
+      el('p', { class: 'dica', texto: `Abrem ${endereco}, clicam em "Sou jogador" e digitam o código ${M.codigo}.` }),
+      el('button', { class: 'btn pequeno', texto: 'Copiar endereço e código', onclick: () => { navigator.clipboard?.writeText(`${endereco}\nCódigo da sala: ${M.codigo}`); avisar('Copiado.'); } })),
+    el('div', { class: 'bloco cresce' }, titulo(`Jogadores (${conectados.size} conectados de ${todos.length})`),
+      todos.length ? el('div', { class: 'lista' }, todos.map(j => el('div', { class: 'item' + (j.conn ? '' : ' apagado') },
         el('span', { class: 'bola', style: `background:${j.cor}` }),
         el('span', { class: 'nome', texto: j.nome }),
         envios.get(j.id)?.texto ? el('span', { class: 'etiqueta ouro', texto: envios.get(j.id).texto }) : null,
-        el('span', { class: 'etiqueta cinza', texto: j.celular ? 'celular' : 'PC' }))))
-        : el('p', { class: 'vazio', texto: 'Ninguém conectado ainda.' })),
-    el('p', { class: 'dica', texto: 'Para um jogador mover o próprio token: selecione o token e escolha o jogador em "Quem move".' }),
+        M.bloqueados[j.id] ? el('span', { class: 'etiqueta perigo', texto: 'expulso' }) : el('span', { class: 'etiqueta ' + (j.conn ? '' : 'cinza'), texto: j.conn ? (j.conn.celular ? 'online · celular' : 'online') : 'offline' }),
+        M.bloqueados[j.id]
+          ? el('button', { class: 'btn pequeno', texto: 'Deixar voltar', onclick: () => { delete M.bloqueados[j.id]; salvar(); desenharPainelMestre(); } })
+          : el('button', { class: 'btn pequeno perigo', texto: 'Expulsar', title: 'Desconecta e não deixa entrar de novo', onclick: () => expulsar(j.id) }),
+        el('button', { class: 'olho', texto: '🗑', title: 'Excluir jogador e os tokens dele', 'aria-label': 'Excluir ' + j.nome, onclick: () => excluirJogador(j.id, tokensDe(j.id)) }))))
+        : el('p', { class: 'vazio', texto: 'Ninguém entrou ainda.' })),
+    painelGaleria(),
   ];
+}
+function expulsar(id) {
+  const j = M.conhecidos[id]; if (!j || !confirm(`Expulsar ${j.nome}? Ele será desconectado e não poderá entrar de novo (até você deixar).`)) return;
+  M.bloqueados[id] = true; salvar();
+  for (const c of sala?.jogadores.values() || []) if (c.id === id) { sala.enviar(c, { t: 'expulso' }); setTimeout(() => { try { c.conn.close(); } catch {} }, 400); }
+  avisar(`${j.nome} foi expulso.`); desenharPainelMestre();
+}
+function excluirJogador(id, nTokens) {
+  const j = M.conhecidos[id]; if (!j) return;
+  if (!confirm(`Excluir ${j.nome} da lista${nTokens ? ` e os ${nTokens} token(s) dele` : ''}? (Se ele entrar de novo, volta para a lista.)`)) return;
+  for (const c of M.cenas) { for (const t of c.tokens.filter(t => t.dono === id)) enviarToken(c, t, true); c.tokens = c.tokens.filter(t => t.dono !== id); }
+  if (M.combate) M.combate.ordem = M.combate.ordem.filter(o => M.cenas.some(c => c.tokens.some(t => t.id === o.id)));
+  for (const g of M.galeria) if (g.dono === id) g.dono = null;
+  delete M.conhecidos[id]; delete M.fichas[id];
+  for (const c of sala?.jogadores.values() || []) if (c.id === id) { sala.enviar(c, { t: 'expulso', excluido: true }); setTimeout(() => { try { c.conn.close(); } catch {} }, 400); }
+  salvar(); tab.redesenhar(); enviarGaleria(); enviarCombate(); desenharPainelMestre();
+  avisar(`${j.nome} foi excluído.`);
+}
+
+// ---------- galeria de tokens: o mestre sobe imagens; cada jogador escolhe um (fica indisponível para os outros) ----------
+const galeriaPara = j => M.galeria.map(g => ({ id: g.id, nome: g.nome, img: g.img, livre: !g.dono, meu: g.dono === j.id, de: g.dono && g.dono !== j.id ? (M.conhecidos[g.dono]?.nome || 'outro jogador') : '' }));
+function enviarGaleria() { if (!sala) return; for (const j of sala.jogadores.values()) sala.enviar(j, { t: 'galeria', itens: galeriaPara(j) }); }
+function painelGaleria() {
+  const subir = async () => {
+    const arquivos = await new Promise(ok => { const i = el('input', { type: 'file', accept: 'image/*', multiple: true }); i.addEventListener('change', () => ok([...i.files])); i.click(); });
+    let n = 0;
+    for (const arq of arquivos.slice(0, 40)) {
+      try { M.galeria.push({ id: uid(), nome: arq.name.replace(/\.[^.]+$/, '').slice(0, 30) || 'Token', img: await retratoPequeno(arq), dono: null }); n++; }
+      catch { avisar(`Não consegui abrir ${arq.name}.`, true); }
+    }
+    if (n) { salvar(); enviarGaleria(); avisar(`${n} token(s) na galeria.`); desenharPainelMestre(); }
+  };
+  return el('div', { class: 'bloco' }, titulo(`Galeria de tokens (${M.galeria.length})`, el('button', { class: 'btn pequeno', texto: '+ Subir tokens', onclick: subir })),
+    el('p', { class: 'dica', texto: 'Os jogadores escolhem um token da galeria no painel deles; o escolhido fica indisponível para os outros. Você também pode usar estes tokens nos NPCs (botão "Da galeria").' }),
+    M.galeria.length ? el('div', { class: 'galeria' }, M.galeria.map(g => el('div', { class: 'galeria-item' + (g.dono ? ' usado' : '') },
+      el('img', { src: g.img, alt: g.nome }),
+      el('small', { texto: g.dono ? (M.conhecidos[g.dono]?.nome || 'em uso') : g.nome }),
+      el('div', { class: 'acoes' },
+        g.dono ? el('button', { class: 'olho', texto: '↺', title: 'Liberar (o jogador perde este token)', 'aria-label': 'Liberar ' + g.nome, onclick: () => { g.dono = null; salvar(); enviarGaleria(); desenharPainelMestre(); } }) : null,
+        el('button', { class: 'olho', texto: '🗑', title: 'Tirar da galeria', 'aria-label': 'Tirar ' + g.nome + ' da galeria', onclick: () => { M.galeria = M.galeria.filter(x => x !== g); salvar(); enviarGaleria(); desenharPainelMestre(); } })))))
+      : null);
+}
+function escolherDaGaleria(aoEscolher) {
+  abrirModal('Escolher da galeria', [
+    el('div', { class: 'galeria grande' }, M.galeria.map(g => el('button', { class: 'galeria-item', type: 'button', onclick: () => { fecharModal(); aoEscolher(g.img); } },
+      el('img', { src: g.img, alt: g.nome }), el('small', { texto: g.nome })))),
+  ]);
+}
+// o jogador escolheu (ou largou) um token da galeria
+function escolhaDaGaleria(j, id) {
+  const g = M.galeria.find(x => x.id === id);
+  if (id && (!g || (g.dono && g.dono !== j.id))) { sala.enviar(j, { t: 'erro', texto: 'Este token já foi escolhido por outro jogador.' }); enviarGaleria(); return; }
+  for (const x of M.galeria) if (x.dono === j.id) x.dono = null; // um por jogador
+  if (g) {
+    g.dono = j.id;
+    for (const c of M.cenas) for (const t of c.tokens) if (t.dono === j.id && t.tipo === 'pc') { t.img = g.img; enviarToken(c, t); }
+  }
+  salvar(); tab.redesenhar(); enviarGaleria(); atualizarSeAba('jogadores', 'tokens');
 }
 
 // ---------- backup (um arquivo só, com os mapas e imagens dentro) ----------
@@ -1274,6 +1395,11 @@ function tratarMensagemDoMestre(msg) {
     if (nova && !msg.antiga) animar(e);
     return;
   }
+  if (msg.t === 'galeria') {
+    J.galeria = (Array.isArray(msg.itens) ? msg.itens : []).slice(0, 200).map(g => ({ id: String(g.id).slice(0, 64), nome: String(g.nome || '').slice(0, 30),
+      img: imagemValida(g.img), livre: !!g.livre, meu: !!g.meu, de: String(g.de || '').slice(0, 40) })).filter(g => g.img);
+    desenharPainelJogador(); return;
+  }
   if (msg.t === 'erro') { avisar(String(msg.texto || 'Erro').slice(0, 200), true); return; }
   if (msg.t === 'combate') { J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador(); return; }
   const c = J.cena;
@@ -1360,8 +1486,22 @@ function iniciarJogador(perfil, codigo) {
     // a barra de cima corta textos longos; antes de conectar, a mensagem inteira aparece no meio da tela
     aoStatus: t => { definirStatus(t, 'espera'); if (!conectado || !J.cena) avisoMapa(t); else avisar(t); conectado = false; },
     aoMensagem: tratarMensagemDoMestre,
-    aoFim: () => { definirStatus('O mestre encerrou a sala.', 'off'); avisar('O mestre encerrou a sala.'); },
+    aoFim: motivo => {
+      const texto = motivo === 'expulso' ? 'Você foi removido da mesa pelo mestre.' : motivo === 'excluido' ? 'O mestre excluiu você da mesa.' : 'O mestre encerrou a sala.';
+      definirStatus(texto, 'off'); avisar(texto, motivo !== 'fim'); avisoMapa(texto);
+    },
   });
+}
+
+// tokens da galeria do mestre: o jogador escolhe um; os já escolhidos ficam indisponíveis
+function escolhaDeToken() {
+  const itens = J.galeria || [];
+  if (!itens.length) return null;
+  return el('div', { class: 'bloco' }, titulo('Escolha seu token'),
+    el('div', { class: 'galeria' }, itens.map(g => el('button', { type: 'button', class: 'galeria-item' + (g.meu ? ' meu' : '') + (!g.livre && !g.meu ? ' usado' : ''),
+      disabled: !g.livre && !g.meu, title: g.meu ? 'Seu token (clique para largar)' : g.livre ? 'Escolher ' + g.nome : 'Escolhido por ' + g.de,
+      onclick: () => J.conexao.enviar({ t: 'galeria-escolher', id: g.meu ? null : g.id }) },
+      el('img', { src: g.img, alt: g.nome }), el('small', { texto: g.meu ? 'Seu' : g.livre ? g.nome : g.de || 'em uso' })))));
 }
 
 function desenharPainelJogador() {
@@ -1376,7 +1516,12 @@ function desenharPainelJogador() {
   // faixa do combate (aparece em todas as abas)
   const faixa = cb ? el('div', { class: 'faixa-combate' + (meus.some(t => t.id === cb.vezId) ? ' minha-vez' : '') },
     el('strong', { texto: meus.some(t => t.id === cb.vezId) ? 'É a sua vez!' : `Rodada ${cb.rodada} · vez de ${cb.ordem.find(o => o.id === cb.vezId)?.nome || '—'}` }),
-    el('ol', { class: 'ordem' }, cb.ordem.map(o => el('li', { class: o.id === cb.vezId ? 'vez' : '' }, el('span', { texto: o.nome }), el('b', { texto: o.ini ?? '—' }))))) : null;
+    el('ol', { class: 'ordem' }, cb.ordem.map(o => {
+      // a iniciativa do meu token que ainda não foi rolada vira um botão
+      const meuSemIni = o.ini == null && meus.some(t => t.id === o.id);
+      return el('li', { class: o.id === cb.vezId ? 'vez' : '' }, el('span', { texto: o.nome }),
+        meuSemIni ? el('button', { class: 'btn pequeno primario', texto: 'Rolar iniciativa', onclick: () => rolarTesteJanela('Iniciativa', eu?.ini || 0, 'iniciativa') }) : el('b', { texto: o.ini ?? '—' }));
+    }))) : null;
 
   // botões de token e ficha
   const botoesFicha = el('div', { class: 'acoes' },
@@ -1407,11 +1552,13 @@ function desenharPainelJogador() {
     podeEditar: true,
     aoVida: (acao, valor) => mudar(acao, { valor }),
     aoRecurso: (recurso, acao) => mudar(acao, { recurso }),
+    aoIniciativa: () => rolarTesteJanela('Iniciativa', eu.ini || 0, 'iniciativa'),
     aoDescanso: tipo => { if (confirm(tipo === 'longo' ? 'Descanso longo: recupera todos os PV e usos. Confirmar?' : 'Descanso curto: recupera os usos de descanso curto. Confirmar?')) mudar('descanso', { tipo }); },
     extras: [
       meus.length > 1 ? el('label', {}, 'Token que você está usando', el('select', { onchange: e => { J.tokenId = e.target.value; desenharPainelJogador(); } },
         meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu.id })))) : null,
       botoesFicha,
+      escolhaDeToken(),
       el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),
         el('p', { class: 'dica', texto: celular
           ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'

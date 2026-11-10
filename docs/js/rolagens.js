@@ -5,10 +5,9 @@
 // O mestre confere contra a CA do alvo (que os jogadores não veem) e devolve a "entrada" pronta.
 // O ataque é rolado primeiro; o dano vem depois, num segundo clique — igual à ficha.
 // Antes de rolar um d20, a pessoa escolhe: Normal, Vantagem ou Desvantagem.
-import { rolar, rolarD20, comSinal } from './dados.js';
-import { el, uid } from './util.js';
-import { diceFromValues } from './dice-geometry.js';
-import { diceAnimationsEnabled } from './dice3d.js';
+import { rolar, rolarD20, comSinal } from './dados.js?v=0.7';
+import { el, uid } from './util.js?v=0.7';
+import { diceFromValues } from './dice-geometry.js?v=0.7';
 
 // ---------- cálculos ----------
 export function rolarAtaque(acao, modo = 'normal') {
@@ -80,18 +79,21 @@ const MODOS = [['normal', 'Normal', 'Um d20'], ['vantagem', 'Vantagem', 'Dois d2
 const TEMPO_ANIMACAO = 2500; // o total só aparece quando os dados 3D param de rolar
 const sorteia = lista => lista[Math.floor(Math.random() * lista.length)];
 
-export function criarJanelaDado(raiz) {
+// ganchos.aoRolar(pedido, palco): quem usa a janela anima os dados 3D dentro do "palco"; devolve true se animou.
+export function criarJanelaDado(raiz, ganchos = {}) {
   let atual = null; // { opcoes, modo, escolhendo, pedido, dano, respostaAtaque, respostaDano, revelado }
   let vez = 0;      // cada rolagem nova invalida o "revelar" atrasado da anterior
+  const palco = el('div', { class: 'dado-anim' }); // o mesmo elemento em todos os desenhos: a animação não é cortada
 
   function fechar() { raiz.hidden = true; atual = null; }
   raiz.addEventListener('click', e => { if (e.target === raiz) fechar(); });
   addEventListener('keydown', e => { if (e.key === 'Escape' && !raiz.hidden) fechar(); });
 
   // espera a animação terminar para mostrar o número (se a animação estiver ligada)
-  function esperarAnimacao() {
+  function esperarAnimacao(pedido) {
     const minha = ++vez;
-    if (!diceAnimationsEnabled()) { atual.revelado = true; return; }
+    palco.replaceChildren();
+    if (!ganchos.aoRolar?.(pedido, palco)) { atual.revelado = true; return; }
     atual.revelado = false;
     setTimeout(() => { if (atual && minha === vez) { atual.revelado = true; desenhar(); } }, TEMPO_ANIMACAO);
   }
@@ -102,7 +104,7 @@ export function criarJanelaDado(raiz) {
       atual.pedido = o.acao ? (o.acao.acerto != null ? rolarAtaque(o.acao, atual.modo) : rolarAcaoComCD(o.acao)) : rolarTeste(o.teste.nome, o.teste.bonus, atual.modo, o.teste.tipo || 'teste');
     } catch (e) { atual.erro = e.message; desenhar(); return; }
     atual.dano = null; atual.respostaAtaque = null; atual.respostaDano = null;
-    if (atual.pedido.d20) esperarAnimacao(); else atual.revelado = true;
+    if (atual.pedido.d20) esperarAnimacao(atual.pedido); else atual.revelado = true;
     o.enviar(atual.pedido);
     desenhar();
   }
@@ -112,7 +114,7 @@ export function criarJanelaDado(raiz) {
     try { atual.dano = rolarDano(o.acao, !!p.critico, p.tipo === 'ataque' ? p.id : null); }
     catch (e) { atual.erro = e.message; desenhar(); return; }
     atual.respostaDano = null;
-    esperarAnimacao();
+    esperarAnimacao(atual.dano);
     o.enviar(atual.dano);
     desenhar();
   }
@@ -145,7 +147,7 @@ export function criarJanelaDado(raiz) {
         el('div', { class: 'dado-total' }, el('b', { texto: String(d.danoTotal) }), el('span', { texto: d.critico ? 'Dano crítico (dados dobrados)' : 'Dano total' })),
         dados(d),
         el('div', { class: 'dado-resultado ' + (res?.classe || ''), texto: res?.texto || (atual.respostaDano ? 'Dano registrado.' : 'Enviando ao mestre…') }),
-      ] : [rolando('Os dados estão rolando…')];
+      ] : [palco];
       rodape = [el('button', { class: 'btn', texto: 'Voltar ao ataque', onclick: () => { atual.dano = null; atual.revelado = true; desenhar(); } })];
     } else if (ehCD) {
       corpo = [
@@ -162,7 +164,7 @@ export function criarJanelaDado(raiz) {
         dados(p),
         ehAtaque ? el('div', { class: 'dado-resultado ' + (res?.classe || ''), texto: res ? res.texto + (atual.respostaAtaque.alvoNome ? ' · ' + atual.respostaAtaque.alvoNome : '') : (o.alvoNome ? `Conferindo contra ${o.alvoNome}…` : 'Sem alvo: o mestre confere.') }) : null,
         ehAtaque && a.critico < 20 ? el('p', { class: 'dica', texto: `Crítico com ${a.critico} ou mais.` }) : null,
-      ] : [el('span', { class: 'etiqueta cinza', texto: modo }), rolando('Os dados estão rolando…')];
+      ] : [el('span', { class: 'etiqueta cinza', texto: modo }), palco];
     }
     if (!atual.escolhendo && !d) {
       if (p?.d20) rodape.push(el('button', { class: 'btn', texto: 'Rolar de novo', onclick: () => { atual.escolhendo = true; atual.pedido = null; vez++; desenhar(); } }));

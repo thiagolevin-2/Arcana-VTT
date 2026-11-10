@@ -396,3 +396,25 @@ details.bloco summary{cursor:pointer;color:var(--ouro);font-size:13px;text-trans
 .dado-total.rolando b{animation:pulsar 1s ease-in-out infinite;color:var(--ouro)}
 @keyframes pulsar{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.dado-total.rolando b{animation:none}}
+
+/* ---- 0.7: galeria de tokens, iniciativa como botão, jogador offline, animação na janela ---- */
+.galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px}
+.galeria.grande{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+.galeria-item{display:grid;justify-items:center;gap:4px;padding:6px;border-radius:10px;border:1px solid var(--linha);background:#16211b;cursor:pointer;color:var(--tinta);min-width:0}
+.galeria-item img{width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--linha)}
+.galeria.grande .galeria-item img{width:76px;height:76px}
+.galeria-item small{font-size:11px;color:var(--apagado);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.galeria-item:hover:not([disabled]){border-color:var(--ouro)}
+.galeria-item.meu{border-color:var(--verde);background:var(--verde-fundo)}
+.galeria-item.meu img{border-color:var(--verde)}
+.galeria-item.usado{opacity:.45;cursor:not-allowed}
+.galeria-item .acoes{gap:2px}
+.num-botao{display:grid;gap:2px;padding:6px;border-radius:8px;background:var(--verde-fundo);border:1px solid var(--verde);text-align:center;cursor:pointer;color:var(--tinta)}
+.num-botao:hover{border-color:var(--ouro)}
+.num-botao small{font-size:11px;color:var(--verde);line-height:1.2}
+.num-botao b{font-size:15px}
+.item.apagado{opacity:.6}
+.ordem li .btn{min-height:28px;padding:0 8px;font-size:12px}
+.dado-anim{width:100%}
+.dado-anim:empty{display:none}
+.dado-anim .dice3d-canto .dice3d-stage{height:250px}

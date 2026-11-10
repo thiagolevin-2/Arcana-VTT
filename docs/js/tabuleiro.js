@@ -220,6 +220,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     g.save();
     if (fantasma) g.globalAlpha = 0.55;
     else if (t.oculto) g.globalAlpha = 0.45;
+    else if (eventos.apagado?.(t)) g.globalAlpha = 0.3; // dono offline (só o mestre vê)
     // sombra
     g.fillStyle = 'rgba(0,0,0,.35)';
     g.beginPath(); g.arc(c.x, c.y + raio * 0.08, raio * 1.04, 0, Math.PI * 2); g.fill();

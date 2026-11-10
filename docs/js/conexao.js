@@ -15,6 +15,8 @@ const LIMITE_FILA = 4 * 1024 * 1024; // espera a fila esvaziar antes de mandar m
 const ESPERA_CONEXAO = 20000;
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CHAVE_PONTE = 'arcana-tab-ponte';
+// "sinal de vida": o jogador manda um "oi" a cada 4 s; sem notícias por 40 s, o mestre o considera offline
+const INTERVALO_OI = 4000, LIMITE_SILENCIO = 40000; // folga para abas em segundo plano (o navegador desacelera os relógios)
 
 export function novoCodigo() {
   const n = crypto.getRandomValues(new Uint8Array(6));
@@ -139,6 +141,9 @@ export function abrirSala(codigo, eventos) {
       conn.on('data', msg => {
         if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
         let j = jogadores.get(conn.peer);
+        if (j) j.ultimo = Date.now();
+        if (msg.t === 'oi') return;
+        if (msg.t === 'tchau') { if (j) sair(conn); return; }
         if (msg.t === 'ola') {
           j = {
             conn,
@@ -146,6 +151,7 @@ export function abrirSala(codigo, eventos) {
             nome: String(msg.nome || 'Jogador').slice(0, 40),
             celular: !!msg.celular,
             cor: /^#[0-9a-f]{6}$/i.test(msg.cor) ? msg.cor : '#a4c29a',
+            ultimo: Date.now(),
           };
           // a mesma pessoa reconectando: fecha a conexão antiga
           for (const [pid, outro] of jogadores) if (outro.id === j.id && pid !== conn.peer) { try { outro.conn.close(); } catch {} jogadores.delete(pid); }
@@ -155,7 +161,7 @@ export function abrirSala(codigo, eventos) {
         }
         if (j) eventos.aoMensagem?.(j, msg);
       });
-      conn.on('close', () => { clearTimeout(vigia); const j = jogadores.get(conn.peer); if (j && j.conn === conn) { jogadores.delete(conn.peer); eventos.aoSair?.(j); } });
+      conn.on('close', () => { clearTimeout(vigia); sair(conn); });
       conn.on('error', () => {});
     });
     peer.on('disconnected', () => { if (!fechada) try { peer.reconnect(); } catch {} });
@@ -177,6 +183,18 @@ export function abrirSala(codigo, eventos) {
       if (tipo === 'browser-incompatible') eventos.aoErro?.('Este navegador não suporta a conexão da mesa.');
     });
   }
+  // tira o jogador da sala (fechou a página, a conexão caiu ou ficou mudo)
+  function sair(conn) {
+    const j = jogadores.get(conn.peer);
+    if (!j || j.conn !== conn) return;
+    jogadores.delete(conn.peer);
+    try { conn.close(); } catch {}
+    eventos.aoSair?.(j);
+  }
+  const vigiaSilencio = setInterval(() => {
+    if (fechada) { clearInterval(vigiaSilencio); return; }
+    for (const j of [...jogadores.values()]) if (Date.now() - (j.ultimo || 0) > LIMITE_SILENCIO) sair(j.conn);
+  }, 3000);
   conectar();
 
   return {
@@ -197,6 +215,9 @@ export function abrirSala(codigo, eventos) {
 // eventos: aoConectar(), aoStatus(texto), aoMensagem(msg), aoFim()
 export function entrarNaSala(codigo, eu, eventos) {
   let peer = null, conn = null, saiu = false, timer = null, falhas = 0;
+  // sinal de vida para o mestre; e um "tchau" quando a página fecha
+  const oi = setInterval(() => { if (saiu) { clearInterval(oi); return; } try { if (conn?.open) conn.send({ t: 'oi' }); } catch {} }, INTERVALO_OI);
+  addEventListener('pagehide', () => { try { if (conn?.open) conn.send({ t: 'tchau' }); } catch {} });
 
   function tentar() {
     if (saiu) return;
@@ -237,7 +258,7 @@ export function entrarNaSala(codigo, eu, eventos) {
       });
       c.on('data', msg => {
         if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
-        if (msg.t === 'fim') { saiu = true; eventos.aoFim?.(); try { p.destroy(); } catch {} return; }
+        if (msg.t === 'fim' || msg.t === 'expulso') { saiu = true; eventos.aoFim?.(msg.t === 'expulso' ? (msg.excluido ? 'excluido' : 'expulso') : 'fim'); try { p.destroy(); } catch {} return; }
         eventos.aoMensagem?.(msg);
       });
       c.on('close', () => { if (!saiu && conn === c) { eventos.aoStatus?.('Conexão com o mestre caiu. Reconectando…'); agendar(); } });
