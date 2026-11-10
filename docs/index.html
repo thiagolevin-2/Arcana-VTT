@@ -7,7 +7,7 @@
 <meta name="description" content="Tabuleiro virtual para jogar D&D com os amigos: mapa, grade, tokens, régua e ping ao vivo.">
 <meta name="theme-color" content="#111914">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="estilo.css?v=0.1">
+<link rel="stylesheet" href="estilo.css?v=0.2">
 </head>
 <body>
 
@@ -69,9 +69,14 @@
   <aside id="painel" class="painel" aria-label="Painel"></aside>
 </div>
 
+<div id="vitrine" class="vitrine" hidden role="dialog" aria-modal="true" aria-labelledby="vitrine-nome">
+  <figure><img id="vitrine-img" alt=""><figcaption id="vitrine-nome"></figcaption></figure>
+  <button id="vitrine-fechar" class="btn primario" type="button">Fechar</button>
+</div>
+
 <div id="avisos" class="avisos" role="status" aria-live="polite"></div>
 
-<script src="vendor/peerjs-1.5.4.min.js?v=0.1"></script>
-<script type="module" src="js/app.js?v=0.1"></script>
+<script src="vendor/peerjs-1.5.4.min.js?v=0.2"></script>
+<script type="module" src="js/app.js?v=0.2"></script>
 </body>
 </html>

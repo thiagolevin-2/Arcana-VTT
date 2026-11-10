@@ -44,6 +44,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
   const api = {
     ferramenta: 'mover',
     selecionado: null,
+    imagemSelecionada: null,
     ehMestre: false,
     corPropria: '#d3bb7c',
     redesenhar: () => { precisa = true; },
@@ -116,9 +117,10 @@ export function criarTabuleiro(canvas, eventos = {}) {
   }
 
   function desenharMapa() {
-    const { w, h } = tamanhoMundo();
+    // o fundo cobre a tela inteira, não só o mapa
+    const f0 = telaParaMundo(0, 0), f1 = telaParaMundo(largura, altura);
     g.fillStyle = cena?.fundo || '#2a2f2b';
-    g.fillRect(0, 0, w, h);
+    g.fillRect(f0.x, f0.y, f1.x - f0.x, f1.y - f0.y);
     if (!mapa) return;
     const larguraNaTela = mapa.w * vista.escala * dpr;
     if (mapa.geral && larguraNaTela <= mapa.geral.width * 1.3) {
@@ -137,10 +139,9 @@ export function criarTabuleiro(canvas, eventos = {}) {
   function desenharGrade() {
     const q = grade();
     if (!cena || cena.grade?.mostrar === false || q.tam * vista.escala < 4) return;
-    const { w, h } = tamanhoMundo();
+    // a grade cobre a tela inteira, além do tamanho do mapa
     const v0 = telaParaMundo(0, 0), v1 = telaParaMundo(largura, altura);
-    const x0 = Math.max(0, v0.x), y0 = Math.max(0, v0.y), x1 = Math.min(w, v1.x), y1 = Math.min(h, v1.y);
-    if (x1 <= x0 || y1 <= y0) return;
+    const x0 = v0.x, y0 = v0.y, x1 = v1.x, y1 = v1.y;
     g.beginPath();
     for (let cx = Math.ceil((x0 - q.ox) / q.tam); q.ox + cx * q.tam <= x1; cx++) { const x = q.ox + cx * q.tam; g.moveTo(x, y0); g.lineTo(x, y1); }
     for (let cy = Math.ceil((y0 - q.oy) / q.tam); q.oy + cy * q.tam <= y1; cy++) { const y = q.oy + cy * q.tam; g.moveTo(x0, y); g.lineTo(x1, y); }
@@ -215,6 +216,50 @@ export function criarTabuleiro(canvas, eventos = {}) {
     g.restore();
   }
 
+  // ---------- imagens soltas (pedaços de mapa, itens, cartas) ----------
+  // Cada imagem: { id, hash, w, h, x, y (centro, no mundo), largura (no mundo), rot (0/90/180/270), camada, oculto, travado }
+  const medidas = im => ({ W: im.largura, H: im.largura * im.h / im.w });
+  function paraLocal(im, wx, wy) {
+    const a = -(im.rot || 0) * Math.PI / 180, dx = wx - im.x, dy = wy - im.y;
+    return { lx: dx * Math.cos(a) - dy * Math.sin(a), ly: dx * Math.sin(a) + dy * Math.cos(a) };
+  }
+  function dentro(im, wx, wy) { const { W, H } = medidas(im), { lx, ly } = paraLocal(im, wx, wy); return Math.abs(lx) <= W / 2 && Math.abs(ly) <= H / 2; }
+  function naAlca(im, wx, wy) {
+    const { W, H } = medidas(im), { lx, ly } = paraLocal(im, wx, wy), r = 12 / vista.escala;
+    return Math.abs(lx - W / 2) <= r && Math.abs(ly - H / 2) <= r;
+  }
+  function imagemEm(wx, wy) {
+    const lista = cena?.imagens || [];
+    for (const camada of ['objeto', 'fundo']) {
+      for (let i = lista.length - 1; i >= 0; i--) if ((lista[i].camada || 'objeto') === camada && dentro(lista[i], wx, wy)) return lista[i];
+    }
+    return null;
+  }
+  function desenharImagem(im) {
+    const { W, H } = medidas(im), px = 1 / vista.escala;
+    g.save();
+    g.translate(im.x, im.y); g.rotate((im.rot || 0) * Math.PI / 180);
+    if (im.oculto) g.globalAlpha = 0.5;
+    const m = eventos.imagemDe?.(im.hash);
+    if (m) {
+      const k = W / m.iw;
+      if (m.geral && W * vista.escala * dpr <= m.geral.width * 1.3) g.drawImage(m.geral, -W / 2, -H / 2, W, H);
+      else for (const p of m.pedacos) g.drawImage(p.img, -W / 2 + p.x * k, -H / 2 + p.y * k, p.w * k + px, p.h * k + px);
+    } else {
+      g.fillStyle = 'rgba(17,25,20,.6)'; g.fillRect(-W / 2, -H / 2, W, H);
+      g.strokeStyle = '#a1ad9e'; g.setLineDash([6 * px, 5 * px]); g.lineWidth = 1.5 * px; g.strokeRect(-W / 2, -H / 2, W, H); g.setLineDash([]);
+    }
+    if (api.imagemSelecionada === im.id) {
+      g.globalAlpha = 1;
+      g.strokeStyle = '#d3bb7c'; g.lineWidth = 2 * px; g.strokeRect(-W / 2, -H / 2, W, H);
+      if (!im.travado) {
+        g.fillStyle = '#d3bb7c'; g.fillRect(W / 2 - 7 * px, H / 2 - 7 * px, 14 * px, 14 * px);
+        g.strokeStyle = '#111914'; g.lineWidth = 1.5 * px; g.strokeRect(W / 2 - 7 * px, H / 2 - 7 * px, 14 * px, 14 * px);
+      }
+    }
+    g.restore();
+  }
+
   function desenharLinha(a, b, cor, nome) {
     const px = 1 / vista.escala, cena0 = cena;
     const ca = centroCelula(a.cx, a.cy), cb = centroCelula(b.cx, b.cy);
@@ -240,7 +285,10 @@ export function criarTabuleiro(canvas, eventos = {}) {
     g.setTransform(e, 0, 0, e, -vista.x * e, -vista.y * e);
     g.imageSmoothingQuality = 'high';
     desenharMapa();
+    const imgs = cena.imagens || [];
+    for (const im of imgs) if (im.camada === 'fundo') desenharImagem(im);
     desenharGrade();
+    for (const im of imgs) if (im.camada !== 'fundo') desenharImagem(im);
     for (const t of cena.tokens) {
       if (arrasto?.tipo === 'token' && arrasto.token.id === t.id && arrasto.mexeu) continue;
       desenharToken(t);
@@ -318,10 +366,16 @@ export function criarTabuleiro(canvas, eventos = {}) {
     }
     if (api.ferramenta === 'grade') { arrasto = { tipo: 'grade', ...inicio, a: w, b: null }; return; }
     const t = tokenEm(w.x, w.y);
+    const sel = api.ehMestre && (cena?.imagens || []).find(i => i.id === api.imagemSelecionada);
+    const im = !t && api.ehMestre ? imagemEm(w.x, w.y) : null;
     if (t && eventos.podeMover?.(t)) {
       arrasto = { tipo: 'token', ...inicio, token: t, alvo: { x: t.x, y: t.y }, mexeu: false };
+    } else if (!t && sel && !sel.travado && naAlca(sel, w.x, w.y)) {
+      arrasto = { tipo: 'alca', ...inicio, img: sel };
+    } else if (im && !im.travado) {
+      arrasto = { tipo: 'imagem', ...inicio, img: im, dx: w.x - im.x, dy: w.y - im.y };
     } else {
-      arrasto = { tipo: 'pan', ...inicio, vx: vista.x, vy: vista.y, clique: t || 'vazio' };
+      arrasto = { tipo: 'pan', ...inicio, vx: vista.x, vy: vista.y, clique: t ? { token: t } : im ? { imagem: im } : 'vazio' };
     }
     // segurar o dedo parado por um tempo = ping (no celular)
     clearTimeout(toqueLongo);
@@ -356,6 +410,12 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const t = arrasto.token, n = celulasDe(t.tam), q = grade();
       arrasto.alvo = { x: Math.round((w.x - q.ox) / q.tam - n / 2), y: Math.round((w.y - q.oy) / q.tam - n / 2) };
       precisa = true;
+    } else if (arrasto.tipo === 'imagem' && arrasto.mexeu) {
+      arrasto.img.x = w.x - arrasto.dx; arrasto.img.y = w.y - arrasto.dy; precisa = true;
+    } else if (arrasto.tipo === 'alca') {
+      const im = arrasto.img, { lx, ly } = paraLocal(im, w.x, w.y);
+      im.largura = Math.max(16 / vista.escala, 2 * Math.max(lx, ly * im.w / im.h));
+      precisa = true;
     } else if (arrasto.tipo === 'regua') {
       minhaRegua.b = celulaEm(w.x, w.y);
       eventos.aoRegua?.(minhaRegua);
@@ -373,10 +433,17 @@ export function criarTabuleiro(canvas, eventos = {}) {
     const a = arrasto; arrasto = null; precisa = true;
     if (a.tipo === 'token') {
       if (a.mexeu && (a.alvo.x !== a.token.x || a.alvo.y !== a.token.y)) eventos.aoMover?.(a.token, a.alvo.x, a.alvo.y);
-      else { api.selecionado = a.token.id; eventos.aoSelecionar?.(a.token); }
+      else { api.selecionado = a.token.id; api.imagemSelecionada = null; eventos.aoSelecionar?.(a.token); }
+    } else if (a.tipo === 'imagem' || a.tipo === 'alca') {
+      if (a.tipo === 'alca') eventos.aoMudarImagem?.(a.img);
+      else if (a.mexeu) eventos.aoMudarImagem?.(a.img);
+      else { api.imagemSelecionada = a.img.id; api.selecionado = null; eventos.aoSelecionarImagem?.(a.img); }
     } else if (a.tipo === 'pan' && !a.mexeu && a.clique) {
-      const t = a.clique === 'vazio' ? null : a.clique;
-      api.selecionado = t?.id || null; eventos.aoSelecionar?.(t);
+      if (a.clique.imagem) { api.imagemSelecionada = a.clique.imagem.id; api.selecionado = null; eventos.aoSelecionarImagem?.(a.clique.imagem); }
+      else {
+        const t = a.clique === 'vazio' ? null : a.clique.token;
+        api.selecionado = t?.id || null; api.imagemSelecionada = null; eventos.aoSelecionar?.(t);
+      }
     } else if (a.tipo === 'regua') {
       minhaRegua = null; eventos.aoRegua?.(null);
     } else if (a.tipo === 'grade' && a.b) {
@@ -392,7 +459,9 @@ export function criarTabuleiro(canvas, eventos = {}) {
 
   canvas.addEventListener('dblclick', e => {
     const { sx, sy } = pos(e), w = telaParaMundo(sx, sy), t = tokenEm(w.x, w.y);
-    if (t) eventos.aoEditar?.(t);
+    if (t) { eventos.aoEditar?.(t); return; }
+    const im = api.ehMestre ? imagemEm(w.x, w.y) : null;
+    if (im) { api.imagemSelecionada = im.id; api.selecionado = null; eventos.aoSelecionarImagem?.(im); }
   });
 
   return api;

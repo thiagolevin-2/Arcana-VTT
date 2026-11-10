@@ -117,3 +117,36 @@ input[type=range]{padding:0;accent-color:var(--verde)}
   .marca{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---- 0.2: painel compacto (sem precisar rolar) ---- */
+:root{--lateral:360px}
+.abas{gap:2px;padding:6px}
+.abas button{padding:0 6px;font-size:12.5px;min-height:32px}
+.conteudo{display:flex;flex-direction:column;gap:14px;padding:12px}
+.bloco{gap:8px}
+.bloco.cresce{flex:1 1 0;min-height:150px;display:flex;flex-direction:column}
+.bloco.cresce > .lista{flex:1 1 0;min-height:0;overflow:auto;align-content:start;padding-right:2px}
+.titulo{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px}
+.titulo h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linha-campos{display:flex;gap:8px;align-items:flex-end}
+.linha-campos.meio{align-items:center}
+.linha-campos > *{min-width:0}
+.linha-campos .cresce{flex:1 1 0}
+.linha-campos .curto{flex:0 0 74px}
+.linha-campos input:not([type=checkbox]):not([type=color]),.linha-campos select{width:100%}
+.painel label{font-size:12px;gap:3px}
+.painel input,.painel select{min-height:34px;padding:4px 8px}
+.painel .btn.pequeno{min-height:32px}
+.painel .item{min-height:40px;padding:6px 10px}
+.retrato-previa{width:34px;height:34px;flex:none}
+.dica.destaque{color:var(--verde);margin:0}
+.conteudo > .dica,.bloco > .dica{margin:0}
+.espaco{flex:1}
+
+/* ---- janela "mostrar a todos" ---- */
+.vitrine{position:fixed;inset:0;z-index:60;background:rgba(5,8,6,.88);display:grid;place-items:center;gap:14px;
+  padding:24px 16px;grid-template-rows:1fr auto;backdrop-filter:blur(3px)}
+.vitrine figure{margin:0;display:grid;gap:10px;justify-items:center;min-height:0;max-height:100%}
+.vitrine img{max-width:min(92vw,1400px);max-height:calc(100vh - 140px);object-fit:contain;border-radius:10px;
+  box-shadow:0 20px 60px #000a;animation:surge .25s ease-out}
+.vitrine figcaption{color:var(--ouro);font-weight:650;font-size:17px}
