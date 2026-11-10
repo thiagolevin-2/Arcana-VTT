@@ -28,6 +28,27 @@ const COR_ESTADO = { 'Ileso': '#7fbf8a', 'Ferido': '#d9b25c', 'Muito ferido': '#
 
 export const celulasDe = tam => Math.max(1, Math.round(tam || 1));
 
+// Custo em metros de andar em linha reta de (x0,y0) até (x1,y1), quadrado a quadrado.
+// Terreno difícil custa o dobro (se qualquer quadrado ocupado pelo token for difícil).
+export function custoMovimento(cena, tam, x0, y0, x1, y1) {
+  const dificil = new Set(cena?.dificil || []), n = celulasDe(tam), alternada = cena?.grade?.diagonal === 'alternada';
+  const ehDificil = (x, y) => { for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (dificil.has(`${x + i},${y + j}`)) return true; return false; };
+  let x = x0, y = y0, metros = 0, diagonais = 0;
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = Math.sign(x1 - x0), sy = Math.sign(y1 - y0);
+  const passos = Math.max(dx, dy);
+  for (let k = 1; k <= passos; k++) {
+    // caminho reto: cada passo anda 1 no eixo maior e, quando precisa, 1 no menor (diagonal)
+    const nx = x0 + sx * Math.round(dx * k / passos), ny = y0 + sy * Math.round(dy * k / passos);
+    const diagonal = nx !== x && ny !== y;
+    let custo = METROS_POR_QUADRADO;
+    if (diagonal && alternada) { diagonais++; if (diagonais % 2 === 0) custo = METROS_POR_QUADRADO * 2; }
+    if (ehDificil(nx, ny)) custo *= 2;
+    metros += custo; x = nx; y = ny;
+  }
+  return metros;
+}
+export const textoMetros = m => m.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' m';
+
 export function criarTabuleiro(canvas, eventos = {}) {
   const g = canvas.getContext('2d');
   const vista = { x: 0, y: 0, escala: 1 };
@@ -147,6 +168,26 @@ export function criarTabuleiro(canvas, eventos = {}) {
     }
   }
 
+  // terreno difícil: quadrados com listras alaranjadas
+  function desenharTerreno() {
+    const lista = cena?.dificil;
+    if (!lista?.length) return;
+    const q = grade(), px = 1 / vista.escala, v0 = telaParaMundo(0, 0), v1 = telaParaMundo(largura, altura);
+    g.save();
+    for (const chave of lista) {
+      const [cx, cy] = chave.split(',').map(Number);
+      const x = q.ox + cx * q.tam, y = q.oy + cy * q.tam;
+      if (x > v1.x || y > v1.y || x + q.tam < v0.x || y + q.tam < v0.y) continue;
+      g.fillStyle = 'rgba(214,140,58,.16)'; g.fillRect(x, y, q.tam, q.tam);
+      g.save(); g.beginPath(); g.rect(x, y, q.tam, q.tam); g.clip();
+      g.strokeStyle = 'rgba(232,160,70,.55)'; g.lineWidth = Math.max(1.2 * px, q.tam * 0.03);
+      g.beginPath();
+      for (let k = -q.tam; k < q.tam; k += q.tam / 4) { g.moveTo(x + k, y + q.tam); g.lineTo(x + k + q.tam, y); }
+      g.stroke(); g.restore();
+    }
+    g.restore();
+  }
+
   function desenharGrade() {
     const q = grade();
     if (!cena || cena.grade?.mostrar === false || q.tam * vista.escala < 4) return;
@@ -202,9 +243,21 @@ export function criarTabuleiro(canvas, eventos = {}) {
     if (t.oculto) g.setLineDash([raio * 0.25, raio * 0.18]);
     g.beginPath(); g.arc(c.x, c.y, raio, 0, Math.PI * 2); g.stroke();
     g.setLineDash([]);
+    const extra = fantasma ? null : eventos.extraDoToken?.(t);
+    if (extra?.vez) {
+      // é a vez deste token: anel verde pulsando
+      const k = (Math.sin(performance.now() / 260) + 1) / 2;
+      g.strokeStyle = '#7fd08a'; g.lineWidth = (3 + 2 * k) * px; g.globalAlpha = 0.6 + 0.4 * k;
+      g.beginPath(); g.arc(c.x, c.y, raio + (8 + 3 * k) * px, 0, Math.PI * 2); g.stroke();
+      g.globalAlpha = t.oculto ? 0.45 : 1;
+    }
     if (api.selecionado === t.id && !fantasma) {
       g.strokeStyle = '#d3bb7c'; g.lineWidth = 3 * px;
       g.beginPath(); g.arc(c.x, c.y, raio + 5 * px, 0, Math.PI * 2); g.stroke();
+    }
+    if (extra?.texto) {
+      const f = Math.max(10 * px, Math.min(q.tam * 0.18, 13 * px));
+      rotulo(extra.texto, c.x, c.y - raio - f * 3.4, f, extra.alerta ? 'rgba(120,30,25,.92)' : 'rgba(17,25,20,.86)', extra.alerta ? '#ffd9d4' : '#cfe3c9');
     }
     if (!fantasma) {
       // barra de vida (jogadores sempre; monstros só para o mestre)
@@ -271,7 +324,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     g.restore();
   }
 
-  function desenharLinha(a, b, cor, nome) {
+  function desenharLinha(a, b, cor, nome, textoPronto) {
     const px = 1 / vista.escala, cena0 = cena;
     const ca = centroCelula(a.cx, a.cy), cb = centroCelula(b.cx, b.cy);
     g.strokeStyle = cor; g.lineWidth = 4 * px; g.lineCap = 'round';
@@ -281,12 +334,12 @@ export function criarTabuleiro(canvas, eventos = {}) {
     g.fillStyle = cor;
     for (const p of [ca, cb]) { g.beginPath(); g.arc(p.x, p.y, 5 * px, 0, Math.PI * 2); g.fill(); }
     const q = quadrados(b.cx - a.cx, b.cy - a.cy, cena0?.grade?.diagonal);
-    rotulo((nome ? nome + ': ' : '') + textoDistancia(q), cb.x, cb.y + 12 * px, 14 * px, 'rgba(17,25,20,.92)', cor);
+    rotulo((nome ? nome + ': ' : '') + (textoPronto || textoDistancia(q)), cb.x, cb.y + 12 * px, 14 * px, 'rgba(17,25,20,.92)', cor);
   }
 
   function quadro(agora) {
     requestAnimationFrame(quadro);
-    const animando = pings.length > 0 || lasers.size > 0;
+    const animando = pings.length > 0 || lasers.size > 0 || api.pulsando;
     if (!precisa && !animando) return;
     precisa = false;
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -298,6 +351,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     desenharMapa();
     const imgs = cena.imagens || [];
     for (const im of imgs) if (im.camada === 'fundo') desenharImagem(im);
+    desenharTerreno();
     desenharGrade();
     for (const im of imgs) if (im.camada !== 'fundo') desenharImagem(im);
     for (const t of cena.tokens) {
@@ -308,7 +362,12 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const t = arrasto.token;
       desenharToken(t, t.x, t.y, true);
       const n = celulasDe(t.tam), meio = (n - 1) / 2;
-      desenharLinha({ cx: t.x + meio, cy: t.y + meio }, { cx: arrasto.alvo.x + meio, cy: arrasto.alvo.y + meio }, api.corPropria);
+      // linha do arraste mostra o custo real (terreno difícil conta dobrado)
+      const custo = custoMovimento(cena, t.tam, t.x, t.y, arrasto.alvo.x, arrasto.alvo.y);
+      const limite = eventos.limiteMovimento?.(t);
+      const passou = limite != null && limite.andou + custo > limite.desloc;
+      const textoCusto = textoMetros(custo) + (limite ? ` · total ${textoMetros(limite.andou + custo)} de ${textoMetros(limite.desloc)}` : '');
+      desenharLinha({ cx: t.x + meio, cy: t.y + meio }, { cx: arrasto.alvo.x + meio, cy: arrasto.alvo.y + meio }, passou ? '#e0645a' : api.corPropria, null, textoCusto);
       desenharToken(t, arrasto.alvo.x, arrasto.alvo.y);
     }
     if (arrasto?.tipo === 'grade' && arrasto.b) {
@@ -396,6 +455,13 @@ export function criarTabuleiro(canvas, eventos = {}) {
       api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
       arrasto = { tipo: 'laser', ...inicio }; return;
     }
+    if (api.ferramenta === 'terreno' && cena) {
+      // o primeiro quadrado decide: pintar (se estava limpo) ou apagar (se já era difícil)
+      const c0 = celulaEm(w.x, w.y), chave = `${c0.cx},${c0.cy}`;
+      const pintar = !(cena.dificil || []).includes(chave);
+      arrasto = { tipo: 'terreno', ...inicio, pintar, feitas: new Set([chave]) };
+      eventos.aoPintarTerreno?.(chave, pintar); precisa = true; return;
+    }
     if (api.ferramenta === 'regua') {
       const c = celulaEm(w.x, w.y);
       minhaRegua = { a: c, b: c }; arrasto = { tipo: 'regua', ...inicio }; precisa = true; return;
@@ -452,6 +518,9 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const im = arrasto.img, { lx, ly } = paraLocal(im, w.x, w.y);
       im.largura = Math.max(16 / vista.escala, 2 * Math.max(lx, ly * im.w / im.h));
       precisa = true;
+    } else if (arrasto.tipo === 'terreno') {
+      const c1 = celulaEm(w.x, w.y), chave = `${c1.cx},${c1.cy}`;
+      if (!arrasto.feitas.has(chave)) { arrasto.feitas.add(chave); eventos.aoPintarTerreno?.(chave, arrasto.pintar); precisa = true; }
     } else if (arrasto.tipo === 'laser') {
       api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
     } else if (arrasto.tipo === 'regua') {
@@ -482,6 +551,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
         const t = a.clique === 'vazio' ? null : a.clique.token;
         api.selecionado = t?.id || null; api.imagemSelecionada = null; eventos.aoSelecionar?.(t);
       }
+    } else if (a.tipo === 'terreno') {
+      eventos.aoTerminarTerreno?.();
     } else if (a.tipo === 'laser') {
       api.mostrarLaser('eu', null, null, api.corPropria); eventos.aoLaser?.(null);
     } else if (a.tipo === 'regua') {

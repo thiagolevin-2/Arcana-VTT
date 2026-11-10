@@ -1,88 +1,15 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
 import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js';
 import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js';
-import { criarTabuleiro, estadoDe, celulasDe } from './tabuleiro.js';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken } from './fichas.js';
+import { tabelaDeAcoes, criarJanelaRolagens, linhasDoPedido, rolarLivre, rolarTeste } from './rolagens.js';
+import { comSinal } from './dados.js';
 import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js';
 
-const VERSAO = '0.3';
-const $ = s => document.querySelector(s);
-const uid = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
-const celular = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js';
 
-// ---------- pequenos ajudantes de tela ----------
-function el(tag, props = {}, ...filhos) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
-    if (k === 'class') e.className = v;
-    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (k === 'texto') e.textContent = v;
-    else if (k in e && typeof v !== 'string') e[k] = v;
-    else e.setAttribute(k, v === true ? '' : v);
-  }
-  for (const f of filhos.flat()) if (f != null && f !== false) e.append(f.nodeType ? f : document.createTextNode(String(f)));
-  return e;
-}
-function avisar(texto, erro = false) {
-  const caixa = $('#avisos');
-  while (caixa.children.length >= 3) caixa.firstChild.remove(); // no máximo 3 avisos de cada vez
-  const a = el('div', { class: 'aviso' + (erro ? ' erro' : ''), texto });
-  caixa.append(a);
-  setTimeout(() => a.remove(), erro ? 6000 : 3200);
-}
-function definirStatus(texto, tipo) {
-  const s = $('#status'); s.className = 'status ' + tipo; s.querySelector('span').textContent = texto;
-}
-function avisoMapa(texto, fracao) {
-  const box = $('#aviso-mapa');
-  if (!texto) { box.hidden = true; return; }
-  box.hidden = false; box.replaceChildren(el('div', { texto }));
-  if (fracao != null) { const b = el('b'); b.style.width = Math.round(fracao * 100) + '%'; box.append(el('div', { class: 'barra-progresso' }, b)); }
-}
-function escolherArquivo(aceita) {
-  return new Promise(ok => {
-    const i = el('input', { type: 'file', accept: aceita });
-    i.addEventListener('change', () => ok(i.files[0] || null));
-    i.click();
-  });
-}
-const numero = (v, min, max, padrao = 0) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : padrao; };
-const inteiro = (v, min, max, padrao = 0) => Math.round(numero(v, min, max, padrao));
-const corValida = c => (/^#[0-9a-f]{6}$/i.test(c) ? c : null);
-const imagemValida = s => (typeof s === 'string' && s.startsWith('data:image/') && s.length < 400000 ? s : null);
-const hashValido = h => typeof h === 'string' && /^[0-9a-f]{32}$/.test(h);
-const TIPOS_IMAGEM = 'image/png,image/jpeg,image/webp';
-
-// 6 cores prontas + "outra cor" (abre o seletor do navegador)
-const CORES = [['#d64541', 'Vermelho'], ['#e8873a', 'Laranja'], ['#e9c46a', 'Amarelo'], ['#4caf6e', 'Verde'], ['#3a86d6', 'Azul'], ['#9b6bd6', 'Roxo']];
-function escolhaDeCor(atual, aoMudar) {
-  const caixa = el('div', { class: 'cores', role: 'radiogroup', 'aria-label': 'Cor' });
-  const outra = el('input', { type: 'color', value: corValida(atual) || '#a4c29a', title: 'Outra cor', 'aria-label': 'Outra cor' });
-  const marcar = cor => {
-    caixa.querySelectorAll('.amostra').forEach(b => b.setAttribute('aria-checked', String(b.dataset.cor === cor.toLowerCase())));
-    outra.classList.toggle('marcada', !CORES.some(([c]) => c === cor.toLowerCase()));
-  };
-  for (const [cor, nome] of CORES) {
-    caixa.append(el('button', { type: 'button', class: 'amostra', role: 'radio', 'data-cor': cor, title: nome, 'aria-label': nome, style: `background:${cor}`,
-      onclick: () => { outra.value = cor; marcar(cor); aoMudar(cor); } }));
-  }
-  outra.addEventListener('input', () => { marcar(outra.value); aoMudar(outra.value); });
-  caixa.append(outra);
-  marcar(corValida(atual) || '');
-  return caixa;
-}
-
-// Manda no máximo uma mensagem a cada "ms" (a última sempre chega); null passa na hora.
-function limitador(enviar, ms = 40) {
-  let ultimo = 0, pendente, timer = null;
-  return valor => {
-    clearTimeout(timer);
-    const agora = performance.now();
-    if (valor == null || agora - ultimo >= ms) { ultimo = agora; enviar(valor); return; }
-    pendente = valor;
-    timer = setTimeout(() => { ultimo = performance.now(); enviar(pendente); }, ms - (agora - ultimo));
-  };
-}
+const VERSAO = '0.4';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -144,15 +71,20 @@ function fecharVitrine(avisarJogadores = true) {
   if (avisarJogadores && papel === 'mestre') sala?.paraTodos({ t: 'mostrar-fim' });
 }
 
-function prepararTabuleiro(eventos) {
+let janela = null; // janela "Rolagens"
+
+function prepararTabuleiro(eventos, opcoesRolagens) {
   $('#inicio').hidden = true;
   $('#mesa').hidden = false;
   tab = criarTabuleiro($('#tela'), eventos);
+  janela = criarJanelaRolagens($('#rolagens'), opcoesRolagens);
+  $('#btn-dados').addEventListener('click', () => { $('#rolagens').classList.toggle('mostrar-celular'); janela.abrir(); });
   const dicas = {
     regua: 'Régua: arraste para medir. Cada quadrado = 1,5 m.',
     ping: 'Ping: clique no mapa para mostrar um ponto a todos.',
     laser: 'Bolinha com rastro: segure o botão e mexa o mouse. Todos veem o caminho.',
     grade: 'Ajustar grade: arraste por cima de UM quadrado desenhado no mapa, de canto a canto.',
+    terreno: 'Terreno difícil: clique ou arraste para pintar. Comece num quadrado já pintado para apagar. Custa o dobro para andar.',
   };
   const escolher = f => {
     tab.ferramenta = f;
@@ -163,12 +95,15 @@ function prepararTabuleiro(eventos) {
   document.querySelectorAll('[data-ferramenta]').forEach(b => b.addEventListener('click', () => escolher(b.dataset.ferramenta)));
   $('#btn-enquadrar').addEventListener('click', () => tab.enquadrar());
   $('#vitrine-fechar').addEventListener('click', () => fecharVitrine(true));
+  $('#modal-fechar').addEventListener('click', fecharModal);
+  $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') fecharModal(); });
   addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('#modal').hidden) { fecharModal(); return; }
     if (e.target.closest('input,select,textarea')) return;
     const k = e.key.toLowerCase();
     if (k === 'escape' && !$('#vitrine').hidden) { fecharVitrine(true); return; }
     if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping'); else if (k === 'l') escolher('laser');
-    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 'f') tab.enquadrar();
+    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'f') tab.enquadrar();
     else if (k === 'escape') escolher('mover');
     else eventos.aoTecla?.(e);
   });
@@ -182,7 +117,9 @@ function prepararTabuleiro(eventos) {
 // =====================================================================
 //                               MESTRE
 // =====================================================================
-const M = { codigo: null, cenas: [], aberta: null, ativa: null, conhecidos: {} };
+// combate: { cenaId, ordem: [{ id, ini }], vezId, rodada, andou: { tokenId: metros } }
+// fichas: a última ficha que cada jogador carregou (para criar o token dele em outras cenas)
+const M = { codigo: null, cenas: [], aberta: null, ativa: null, conhecidos: {}, combate: null, fichas: {} };
 let sala = null, abaMestre = 'cenas', salvarTimer = null, escolherFerramenta = null, rascunhoNovo = null;
 const envios = new Map(); // jogadorId -> { fila: Promise, texto }
 
@@ -193,7 +130,7 @@ function novaCena(nome) {
     tokens: [], imagens: [],
   };
 }
-function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; } }
+function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; } M.fichas ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
 const cenaAberta = () => M.cenas.find(c => c.id === M.aberta) || M.cenas[0];
 const cenaAtiva = () => M.cenas.find(c => c.id === M.ativa) || null;
 const salvar = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => guardar('dados', 'mestre', M).catch(e => avisar('Não consegui salvar: ' + e.message, true)), 300); };
@@ -206,7 +143,10 @@ const hashesUsados = () => new Set(M.cenas.flatMap(c => [
 // O que um jogador pode ver de uma cena: sem tokens/imagens escondidos, monstros sem PV exato.
 function tokenParaJogador(t) {
   const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img };
-  if (t.tipo === 'pc') { c.pv = t.pv; c.pvMax = t.pvMax; } else c.estado = estadoDe(t.pv, t.pvMax);
+  if (t.tipo === 'pc') {
+    // personagens: números e ações vão para todos (a CA dos monstros continua secreta)
+    Object.assign(c, { pv: t.pv, pvMax: t.pvMax, ca: t.ca, desloc: t.desloc, outros: t.outros, visao: t.visao, ini: t.ini, ficha: t.ficha || null });
+  } else c.estado = estadoDe(t.pv, t.pvMax);
   return c;
 }
 function cenaParaJogador(cena, j) {
@@ -214,6 +154,7 @@ function cenaParaJogador(cena, j) {
     id: cena.id, nome: cena.nome, colunas: cena.colunas, linhas: cena.linhas, fundo: cena.fundo, grade: cena.grade,
     mapa: cena.mapa ? { hash: j.celular ? cena.mapa.leve : cena.mapa.hash, w: cena.mapa.w, h: cena.mapa.h } : null,
     tokens: cena.tokens.filter(t => !t.oculto).map(tokenParaJogador),
+    dificil: cena.dificil || [],
     imagens: (cena.imagens || []).filter(i => !i.oculto).map(i => ({
       id: i.id, hash: j.celular ? i.leve : i.hash, w: i.w, h: i.h, x: i.x, y: i.y, largura: i.largura, rot: i.rot, camada: i.camada,
     })),
@@ -230,6 +171,153 @@ function enviarToken(cena, t, removido = false) {
 }
 // mudanças de imagem: manda a cena (só se for a que os jogadores estão vendo)
 function enviarImagens(cena) { if (cena.id === M.ativa) enviarCena(); }
+
+// ---------- combate: iniciativa, turnos e movimento ----------
+const cenaDoCombate = () => M.cenas.find(c => c.id === M.combate?.cenaId) || null;
+function ordenarCombate() {
+  const cb = M.combate; if (!cb) return;
+  const c = cenaDoCombate();
+  const iniDe = id => c?.tokens.find(t => t.id === id)?.ini ?? 0;
+  // maior iniciativa primeiro; empate: maior bônus; quem não rolou vai para o fim
+  cb.ordem.sort((a, b) => (b.ini ?? -99) - (a.ini ?? -99) || iniDe(b.id) - iniDe(a.id));
+}
+// O que os jogadores sabem do combate (sem tokens escondidos; movimento só dos personagens)
+function combateParaJogadores() {
+  const cb = M.combate, c = cenaDoCombate();
+  if (!cb || !c || c.id !== M.ativa) return null;
+  const visiveis = new Map(c.tokens.filter(t => !t.oculto).map(t => [t.id, t]));
+  return {
+    rodada: cb.rodada, vezId: visiveis.has(cb.vezId) ? cb.vezId : null,
+    ordem: cb.ordem.filter(o => visiveis.has(o.id)).map(o => ({ id: o.id, nome: visiveis.get(o.id).nome, ini: o.ini })),
+    andou: Object.fromEntries(Object.entries(cb.andou || {}).filter(([id]) => visiveis.get(id)?.tipo === 'pc')),
+  };
+}
+function enviarCombate() {
+  tab?.redesenhar();
+  if (tab) tab.pulsando = !!M.combate && cenaAberta().id === M.combate.cenaId;
+  sala?.paraTodos({ t: 'combate', combate: combateParaJogadores() });
+  atualizarSeAba('combate');
+}
+function comecarCombate() {
+  const c = cenaAberta();
+  M.combate = { cenaId: c.id, ordem: c.tokens.map(t => ({ id: t.id, ini: null })), vezId: null, rodada: 1, andou: {} };
+  salvar(); enviarCombate();
+  if (c.id !== M.ativa) avisar('Atenção: os jogadores estão em outra cena e não veem este combate.', true);
+  postar({ quem: 'Mestre', cor: '#d3bb7c', titulo: 'Combate começou! Rolem iniciativa.' });
+}
+function proximoTurno() {
+  const cb = M.combate; if (!cb?.ordem.length) return;
+  ordenarCombate();
+  const i = cb.ordem.findIndex(o => o.id === cb.vezId);
+  let prox = i + 1;
+  if (i < 0) prox = 0; else if (prox >= cb.ordem.length) { prox = 0; cb.rodada++; }
+  cb.vezId = cb.ordem[prox].id;
+  cb.andou[cb.vezId] = 0; // o movimento zera no começo do turno
+  salvar(); enviarCombate();
+  const t = cenaDoCombate()?.tokens.find(x => x.id === cb.vezId);
+  if (t) {
+    if (cenaAberta().id === cb.cenaId) tab.centralizarEm(t);
+    if (!t.oculto) postar({ quem: 'Mestre', cor: '#d3bb7c', titulo: `Rodada ${cb.rodada} · vez de ${t.nome}` });
+  }
+}
+function encerrarCombate() { M.combate = null; salvar(); enviarCombate(); postar({ quem: 'Mestre', cor: '#d3bb7c', titulo: 'Combate encerrado.' }); }
+function definirIniciativa(tokenId, valor) {
+  const o = M.combate?.ordem.find(x => x.id === tokenId);
+  if (!o) return;
+  o.ini = valor == null || valor === '' ? null : inteiro(valor, -20, 60);
+  ordenarCombate(); salvar(); enviarCombate();
+}
+// Conta o movimento do token durante o combate. Devolve o aviso, se passou do deslocamento.
+function registrarMovimento(cena, t, x0, y0) {
+  const cb = M.combate;
+  if (!cb || cb.cenaId !== cena.id || !cb.ordem.some(o => o.id === t.id)) return;
+  const custo = custoMovimento(cena, t.tam, x0, y0, t.x, t.y);
+  cb.andou[t.id] = (cb.andou[t.id] || 0) + custo;
+  salvar(); enviarCombate();
+  if (t.desloc > 0 && cb.andou[t.id] > t.desloc + 0.01) {
+    const msg = `${t.nome} andou ${textoMetros(cb.andou[t.id])}, mais que o deslocamento (${textoMetros(t.desloc)}).`;
+    avisar(msg, true);
+    if (!t.oculto && t.tipo === 'pc') postar({ quem: t.nome, cor: t.cor, titulo: 'Passou do deslocamento', linhas: [{ rotulo: 'Andou', total: textoMetros(cb.andou[t.id]), detalhe: `deslocamento ${textoMetros(t.desloc)} (Disparada dobra)` }] });
+  }
+}
+// rótulo em cima do token: "6 / 9 m" no combate; vermelho se passou
+function extraDoToken(t, combate, souMestre) {
+  if (!combate) return null;
+  const vez = combate.vezId === t.id, andou = combate.andou?.[t.id];
+  if (andou == null || !(souMestre || t.tipo === 'pc')) return vez ? { vez } : null;
+  const desloc = t.desloc || 0;
+  return { vez, texto: desloc ? `${textoMetros(andou)} / ${textoMetros(desloc)}` : textoMetros(andou), alerta: desloc > 0 && andou > desloc + 0.01 };
+}
+
+// ---------- rolagens no mestre ----------
+let historico = []; // últimas entradas (para quem entra depois)
+function postar(e, { secreta = false } = {}) {
+  const entrada = { id: e.id || uid(), linhas: [], ...e, secreta };
+  janela?.adicionar(entrada);
+  if (secreta) return entrada;
+  historico.push(entrada); if (historico.length > 30) historico.shift();
+  sala?.paraTodos({ t: 'rolagem', e: paraJogadores(entrada) });
+  return entrada;
+}
+const paraJogadores = e => ({ ...e, alvoId: undefined, aplicado: undefined });
+// Recebe um pedido de rolagem (do jogador ou do próprio mestre) e monta a entrada.
+function resolverPedido(p, autor, atacante, alvo, secreta = false) {
+  const e = { quem: atacante?.nome || autor.nome, cor: atacante?.cor || autor.cor, titulo: p.titulo, linhas: linhasDoPedido(p) };
+  if (alvo && (p.tipo === 'ataque' || p.danoTotal > 0 || p.cd != null)) { e.alvoId = alvo.id; e.alvoNome = alvo.oculto && !secreta ? 'alvo escondido' : alvo.nome; }
+  if (p.tipo === 'ataque') {
+    if (p.critico) e.resultado = { texto: 'Crítico! Acertou', classe: 'critico' };
+    else if (p.falha) e.resultado = { texto: 'Errou (1 natural)', classe: 'erro' };
+    else if (alvo && Number.isFinite(alvo.ca)) e.resultado = p.d20.total >= alvo.ca ? { texto: 'Acertou!', classe: 'acerto' } : { texto: 'Errou', classe: 'erro' };
+  }
+  const acertou = e.resultado?.classe === 'acerto' || e.resultado?.classe === 'critico';
+  if (p.danoTotal > 0) e.dano = p.danoTotal;
+  const entrada = postar(e, { secreta });
+  // acertou um alvo com CA conhecida: o dano vai sozinho
+  if (acertou && alvo && p.danoTotal > 0) aplicarDano(entrada, 1);
+  // iniciativa entra sozinha no combate
+  if (p.tipo === 'iniciativa' && atacante && M.combate?.ordem.some(o => o.id === atacante.id)) definirIniciativa(atacante.id, p.d20.total);
+  return entrada;
+}
+function tokenPorId(id) { for (const c of M.cenas) { const t = c.tokens.find(x => x.id === id); if (t) return { c, t }; } return null; }
+function aplicarDano(entrada, fator) {
+  const achado = tokenPorId(entrada.alvoId); if (!achado) return;
+  const { c, t } = achado, dano = Math.floor(entrada.dano * fator);
+  t.pv = Math.max(0, (t.pv || 0) - dano);
+  entrada.aplicado = dano;
+  salvar(); tab.redesenhar(); enviarToken(c, t); atualizarSeAba('tokens', 'combate');
+  janela.adicionar(entrada);
+}
+function desfazerDano(entrada) {
+  const achado = tokenPorId(entrada.alvoId); if (!achado || !entrada.aplicado) return;
+  const { c, t } = achado;
+  t.pv = Math.min(t.pvMax || 99999, (t.pv || 0) + entrada.aplicado);
+  entrada.aplicado = 0;
+  salvar(); tab.redesenhar(); enviarToken(c, t); atualizarSeAba('tokens', 'combate');
+  janela.adicionar(entrada);
+}
+// Confere um pedido vindo da rede (o jogador rolou no aparelho dele)
+function pedidoValido(p) {
+  if (!p || typeof p !== 'object' || !['ataque', 'acao', 'teste', 'iniciativa', 'livre'].includes(p.tipo)) return null;
+  const n = (v, a, b) => numero(v, a, b, 0);
+  const r = { tipo: p.tipo, titulo: String(p.titulo || '').slice(0, 60), danos: [], cd: p.cd != null ? n(p.cd, 1, 40) : null, salva: p.salva ? String(p.salva).slice(0, 20) : null,
+    critico: !!p.critico, falha: !!p.falha };
+  if (p.d20) {
+    const valores = (Array.isArray(p.d20.valores) ? p.d20.valores : []).slice(0, 2).map(v => inteiro(v, 1, 20, 1));
+    const escolhido = inteiro(p.d20.escolhido, 1, 20, 1), bonus = inteiro(p.d20.bonus, -20, 40);
+    r.d20 = { valores, escolhido, bonus, total: escolhido + bonus, modo: ['vantagem', 'desvantagem'].includes(p.d20.modo) ? p.d20.modo : 'normal' };
+  }
+  for (const d of (Array.isArray(p.danos) ? p.danos : []).slice(0, 10)) r.danos.push({ expr: String(d.expr || '').slice(0, 60), total: inteiro(d.total, 0, 9999), detalhe: String(d.detalhe || '').slice(0, 200), tipo: String(d.tipo || '').slice(0, 30) });
+  r.danoTotal = r.danos.reduce((s, x) => s + x.total, 0);
+  if (p.livre) r.livre = { expr: String(p.livre.expr || '').slice(0, 60), total: inteiro(p.livre.total, -9999, 99999), detalhe: String(p.livre.detalhe || '').slice(0, 300) };
+  return r;
+}
+
+// Dados de token a partir da ficha carregada pelo jogador
+function aplicarFichaNoToken(t, f) {
+  Object.assign(t, { nome: f.nome, pv: f.pv, pvMax: f.pvMax, ca: f.ca, ini: f.ini, desloc: f.desloc, outros: f.outros, visao: f.visao, tam: f.tam,
+    ficha: { atributos: f.atributos, acoes: f.acoes, magia: f.magia, resumo: f.resumo } });
+  if (f.retratoPequeno) t.img = f.retratoPequeno;
+}
 
 // manda um arquivo para um jogador, um de cada vez
 function mandarMapa(j, hash) {
@@ -262,7 +350,19 @@ async function iniciarMestre() {
 
   escolherFerramenta = prepararTabuleiro({
     podeMover: () => true,
-    aoMover: (t, x, y) => { t.x = x; t.y = y; salvar(); tab.redesenhar(); if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'mov', id: t.id, x, y }); },
+    aoMover: (t, x, y) => {
+      const x0 = t.x, y0 = t.y; t.x = x; t.y = y; salvar(); tab.redesenhar();
+      if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'mov', id: t.id, x, y });
+      registrarMovimento(cenaAberta(), t, x0, y0);
+    },
+    extraDoToken: t => (M.combate?.cenaId === cenaAberta().id ? extraDoToken(t, M.combate, true) : null),
+    limiteMovimento: t => (M.combate?.cenaId === cenaAberta().id && M.combate.ordem.some(o => o.id === t.id) && t.desloc ? { andou: M.combate.andou[t.id] || 0, desloc: t.desloc } : null),
+    aoPintarTerreno: (chave, pintar) => {
+      const c = cenaAberta(), s = new Set(c.dificil || []);
+      if (pintar) s.add(chave); else s.delete(chave);
+      c.dificil = [...s];
+    },
+    aoTerminarTerreno: () => { salvar(); enviarCena(); },
     aoSelecionar: t => { if (t) abaMestre = 'tokens'; desenharPainelMestre(); },
     aoEditar: t => { tab.selecionado = t.id; tab.imagemSelecionada = null; abaMestre = 'tokens'; desenharPainelMestre(); abrirPainelCelular(); },
     imagemDe: hash => imagensAbertas.get(hash)?.m || null,
@@ -284,7 +384,16 @@ async function iniciarMestre() {
       const im = c.imagens.find(x => x.id === tab.imagemSelecionada);
       if (im && confirm(`Excluir a imagem "${im.nome}"?`)) excluirImagem(c, im);
     },
+  }, {
+    ehMestre: true,
+    aoRolarLivre: (expr, secreta) => {
+      try { resolverPedido(rolarLivre(expr), { nome: 'Mestre', cor: '#d3bb7c' }, null, null, secreta); }
+      catch (e) { avisar(e.message, true); return false; }
+    },
+    aoAplicar: (e, fator) => aplicarDano(e, fator),
+    aoDesfazer: e => desfazerDano(e),
   });
+  tab.pulsando = !!M.combate && M.combate.cenaId === cenaAberta().id;
   $('#mesa').classList.add('mestre');
   tab.ehMestre = true;
   $('#chip-codigo').textContent = M.codigo;
@@ -310,6 +419,8 @@ function ligarSala() {
       salvar();
       const c = cenaAtiva();
       sala.enviar(j, { t: 'bemvindo', versao: VERSAO, cena: c ? cenaParaJogador(c, j) : null });
+      sala.enviar(j, { t: 'combate', combate: combateParaJogadores() });
+      for (const e of historico.slice(-15)) sala.enviar(j, { t: 'rolagem', e: paraJogadores(e) });
       avisar(`${j.nome} entrou na mesa.`);
       atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas', 'tokens');
     },
@@ -328,9 +439,32 @@ function tratarMensagemDoJogador(j, msg) {
   if (msg.t === 'mover' && c) {
     const t = c.tokens.find(x => x.id === msg.id);
     if (!t || t.dono !== j.id || t.oculto) return;
+    const x0 = t.x, y0 = t.y;
     t.x = inteiro(msg.x, -500, 5000); t.y = inteiro(msg.y, -500, 5000);
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     sala.paraTodos({ t: 'mov', id: t.id, x: t.x, y: t.y });
+    registrarMovimento(c, t, x0, y0);
+  } else if (msg.t === 'ficha' && c) {
+    // o jogador carregou a ficha exportada: atualiza (ou cria) o token dele
+    let f;
+    try { f = limparFicha(msg.ficha); } catch (e) { sala.enviar(j, { t: 'erro', texto: e.message }); return; }
+    f.retratoPequeno = imagemValida(msg.retrato);
+    M.fichas[j.id] = { ...f, retrato: null };
+    let t = c.tokens.find(x => x.dono === j.id && x.id === msg.tokenId) || c.tokens.find(x => x.dono === j.id);
+    if (!t) {
+      t = { id: uid(), tipo: 'pc', cor: j.cor, dono: j.id, oculto: false, img: null, x: inteiro(msg.x, -500, 5000), y: inteiro(msg.y, -500, 5000) };
+      c.tokens.push(t);
+    }
+    aplicarFichaNoToken(t, f);
+    salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
+    enviarToken(c, t); atualizarSeAba('tokens', 'combate');
+    avisar(`${j.nome} carregou a ficha de ${f.nome}.`);
+  } else if (msg.t === 'rolar') {
+    const p = pedidoValido(msg.p); if (!p) return;
+    const ativa = cenaAtiva();
+    const meu = ativa?.tokens.find(t => t.id === msg.tokenId && t.dono === j.id) || null;
+    const alvo = ativa?.tokens.find(t => t.id === msg.alvoId && !t.oculto) || null;
+    resolverPedido(p, { nome: j.nome, cor: j.cor }, meu, alvo);
   } else if (msg.t === 'ping') {
     const x = numero(msg.x, -1e6, 1e6), y = numero(msg.y, -1e6, 1e6);
     if (cenaAberta().id === M.ativa) tab.mostrarPing(x, y, j.cor);
@@ -345,6 +479,8 @@ function tratarMensagemDoJogador(j, msg) {
     if (c.tokens.filter(t => t.dono === j.id).length >= 3) return;
     const t = { id: uid(), nome: String(msg.nome || j.nome).trim().slice(0, 40) || j.nome, tipo: 'pc', cor: corValida(msg.cor) || j.cor,
       tam: 1, pv: 0, pvMax: 0, dono: j.id, oculto: false, img: null, x: inteiro(msg.x, -500, 5000), y: inteiro(msg.y, -500, 5000) };
+    // se o jogador já carregou a ficha antes, o token novo já nasce com os números dela
+    if (M.fichas[j.id] && !c.tokens.some(x => x.dono === j.id)) aplicarFichaNoToken(t, M.fichas[j.id]);
     c.tokens.push(t);
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens');
@@ -364,6 +500,7 @@ async function abrirCenaNoTabuleiro() {
   tab.selecionado = null; tab.imagemSelecionada = null;
   tab.definirCena(c);
   for (const h of imagensDaCena(c)) abrirImagem(h);
+  tab.pulsando = !!M.combate && M.combate.cenaId === c.id;
   if (c.mapa) await mostrarMapa(c, c.mapa.hash); else await mostrarMapa(c, null);
   tab.enquadrar();
 }
@@ -389,8 +526,8 @@ function atualizarSeAba(...abas) {
   desenharPainelMestre();
 }
 function desenharPainelMestre() {
-  const abas = [['cenas', 'Cenas'], ['tokens', 'Tokens'], ['imagens', 'Imagens'], ['grade', 'Grade'], ['jogadores', 'Jogadores'], ['backup', 'Ajustes']];
-  const corpo = { cenas: painelCenas, tokens: painelTokens, imagens: painelImagens, grade: painelGrade, jogadores: painelJogadores, backup: painelBackup }[abaMestre]();
+  const abas = [['cenas', 'Cenas'], ['tokens', 'Tokens'], ['combate', 'Combate'], ['imagens', 'Imagens'], ['grade', 'Grade'], ['jogadores', 'Jogadores'], ['backup', 'Ajustes']];
+  const corpo = { cenas: painelCenas, tokens: painelTokens, combate: painelCombate, imagens: painelImagens, grade: painelGrade, jogadores: painelJogadores, backup: painelBackup }[abaMestre]();
   const rolagem = $('#painel .conteudo')?.scrollTop || 0;
   $('#painel').replaceChildren(
     el('div', { class: 'abas', role: 'tablist' }, abas.map(([id, nome]) =>
@@ -400,7 +537,6 @@ function desenharPainelMestre() {
   $('#painel .conteudo').scrollTop = rolagem;
 }
 // título de bloco com um botão pequeno à direita
-const titulo = (texto, botao) => el('div', { class: 'titulo' }, el('h3', { texto }), botao || null);
 
 function painelCenas() {
   const c = cenaAberta();
@@ -473,7 +609,7 @@ const TAMANHOS = [[0.5, 'Miúdo'], [1, 'Pequeno / Médio'], [2, 'Grande (2×2)']
 function painelTokens() {
   const c = cenaAberta();
   const t = c.tokens.find(x => x.id === tab.selecionado) || null;
-  const rascunho = t ? { ...t } : (rascunhoNovo ||= { nome: '', tipo: 'npc', cor: '#8c3b3b', tam: 1, pv: 10, pvMax: 10, dono: '', oculto: false, img: null });
+  const rascunho = t ? { ...t } : (rascunhoNovo ||= { nome: '', tipo: 'npc', cor: '#8c3b3b', tam: 1, pv: 10, pvMax: 10, ca: 12, desloc: 9, dono: '', oculto: false, img: null });
   const campo = (k, props) => el('input', { value: rascunho[k] ?? '', oninput: e => { rascunho[k] = e.target.value; if (t) aplicar(); }, ...props });
   const previa = el('img', { class: 'retrato-previa', alt: 'Retrato', hidden: !rascunho.img, src: rascunho.img || null });
 
@@ -484,6 +620,7 @@ function painelTokens() {
       cor: corValida(rascunho.cor) || '#5b7c66',
       tam: numero(rascunho.tam, 0.5, 4, 1),
       pv: inteiro(rascunho.pv, -999, 9999, 0), pvMax: inteiro(rascunho.pvMax, 0, 9999, 0),
+      ca: rascunho.ca === '' || rascunho.ca == null ? null : inteiro(rascunho.ca, 0, 40, 10), desloc: numero(rascunho.desloc, 0, 300, 9),
       dono: rascunho.dono || '', oculto: !!rascunho.oculto, img: imagemValida(rascunho.img),
     };
   }
@@ -497,7 +634,9 @@ function painelTokens() {
   const mudarPV = sinal => { const v = inteiro(ajustePV.value, 0, 9999, 0); if (!v || !t) return; t.pv = Math.min(t.pvMax || 9999, t.pv + sinal * v); ajustePV.value = ''; salvar(); tab.redesenhar(); enviarToken(c, t); desenharPainelMestre(); };
 
   const form = el('div', { class: 'bloco' },
-    titulo(t ? 'Editar: ' + t.nome : 'Novo token', t ? el('button', { class: 'btn pequeno', texto: '+ Novo', onclick: () => { tab.selecionado = null; tab.redesenhar(); desenharPainelMestre(); } }) : null),
+    titulo(t ? 'Editar: ' + t.nome : 'Novo token', el('div', { class: 'acoes' },
+      el('button', { class: 'btn pequeno', texto: '+ Monstro do livro', onclick: abrirListaMonstros }),
+      t ? el('button', { class: 'btn pequeno', texto: '+ Novo', onclick: () => { tab.selecionado = null; tab.redesenhar(); desenharPainelMestre(); } }) : null)),
     el('label', {}, 'Nome', campo('nome', { maxlength: 40 })),
     el('div', { class: 'linha-campos meio' }, el('span', { class: 'rotulo', texto: 'Cor' }),
       escolhaDeCor(rascunho.cor, cor => { rascunho.cor = cor; if (t) aplicar(); })),
@@ -510,7 +649,9 @@ function painelTokens() {
     el('div', { class: 'linha-campos' },
       el('label', { class: 'curto' }, 'PV', campo('pv', { type: 'number', inputmode: 'numeric' })),
       el('label', { class: 'curto' }, 'PV máx.', campo('pvMax', { type: 'number', min: 0, inputmode: 'numeric' })),
-      el('label', { class: 'cresce' }, 'Quem move', donos)),
+      el('label', { class: 'curto' }, 'CA', campo('ca', { type: 'number', min: 0, inputmode: 'numeric' })),
+      el('label', { class: 'curto' }, 'Desloc. m', campo('desloc', { type: 'number', min: 0, step: 1.5, inputmode: 'decimal' }))),
+    el('label', {}, 'Quem move', donos),
     t ? el('div', { class: 'linha-campos' }, el('div', { class: 'curto' }, ajustePV),
       el('button', { class: 'btn pequeno perigo cresce', texto: '− Dano', onclick: () => mudarPV(-1) }),
       el('button', { class: 'btn pequeno cresce', texto: '+ Cura', onclick: () => mudarPV(1) })) : null,
@@ -646,6 +787,135 @@ async function mostrarATodos(im) {
   if (!sala) return;
   for (const j of sala.jogadores.values()) sala.enviar(j, { t: 'mostrar', hash: j.celular ? im.leve : im.hash, nome: im.nome });
 }
+
+// ---------- aba Combate: iniciativa, turnos e ações do token ----------
+let modoMestre = 'normal', alvoMestre = '';
+function painelCombate() {
+  const c = cenaAberta(), cb = M.combate;
+  const blocos = [];
+  if (!cb || cb.cenaId !== c.id) {
+    blocos.push(el('div', { class: 'bloco' }, titulo('Combate'),
+      cb ? el('p', { class: 'dica', texto: 'Há um combate em outra cena. Abra aquela cena para continuar, ou comece um novo aqui (o outro será encerrado).' }) : null,
+      el('button', { class: 'btn primario', texto: 'Começar combate nesta cena', onclick: comecarCombate }),
+      el('p', { class: 'dica', texto: 'Todos os tokens da cena entram na ordem. Os jogadores rolam a iniciativa no painel deles e o valor entra sozinho.' })));
+  } else {
+    const porId = new Map(c.tokens.map(t => [t.id, t]));
+    const novos = c.tokens.filter(t => !cb.ordem.some(o => o.id === t.id));
+    blocos.push(el('div', { class: 'bloco' },
+      titulo(`Combate · rodada ${cb.rodada}`, el('button', { class: 'btn pequeno perigo', texto: 'Encerrar', onclick: () => { if (confirm('Encerrar o combate?')) encerrarCombate(); } })),
+      el('div', { class: 'linha-campos' },
+        el('button', { class: 'btn primario cresce', texto: cb.vezId ? 'Próximo turno ▸' : 'Começar a 1ª rodada ▸', onclick: proximoTurno }),
+        el('button', { class: 'btn pequeno', texto: 'Rolar inic. dos monstros', title: 'd20 + iniciativa para os monstros sem valor (rolagem secreta)', onclick: () => {
+          for (const o of cb.ordem) {
+            const t = porId.get(o.id);
+            if (t && t.tipo !== 'pc' && o.ini == null) {
+              const p = rolarTeste('Iniciativa', t.ini ?? 0, 'normal', 'iniciativa');
+              o.ini = p.d20.total;
+              postar({ quem: t.nome, cor: t.cor, titulo: 'Iniciativa', linhas: linhasDoPedido(p) }, { secreta: true });
+            }
+          }
+          ordenarCombate(); salvar(); enviarCombate();
+        } })),
+      novos.length ? el('button', { class: 'btn pequeno', texto: `Incluir ${novos.length} token(s) novo(s) na ordem`, onclick: () => { for (const t of novos) cb.ordem.push({ id: t.id, ini: null }); salvar(); enviarCombate(); } }) : null));
+    blocos.push(el('div', { class: 'bloco cresce' }, titulo('Ordem de iniciativa'),
+      el('div', { class: 'lista' }, cb.ordem.filter(o => porId.has(o.id)).map(o => {
+        const t = porId.get(o.id), andou = cb.andou[o.id];
+        return el('div', { class: 'item' + (o.id === cb.vezId ? ' vez' : '') + (t.id === tab.selecionado ? ' sel' : '') },
+          el('input', { class: 'ini', type: 'number', value: o.ini ?? '', placeholder: '—', 'aria-label': 'Iniciativa de ' + t.nome, inputmode: 'numeric',
+            onchange: e => definirIniciativa(o.id, e.target.value) }),
+          el('span', { class: 'bola', style: `background:${t.cor}` }),
+          el('button', { class: 'nome link', texto: t.nome + (t.oculto ? ' (escondido)' : ''), onclick: () => { tab.selecionado = t.id; tab.centralizarEm(t); desenharPainelMestre(); } }),
+          t.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${t.pv}/${t.pvMax}` }) : null,
+          andou != null ? el('span', { class: 'etiqueta ' + (t.desloc && andou > t.desloc + 0.01 ? 'perigo' : 'cinza'), texto: t.desloc ? `${textoMetros(andou)}/${textoMetros(t.desloc)}` : textoMetros(andou) }) : null,
+          el('button', { class: 'olho', texto: '×', title: 'Tirar do combate', 'aria-label': 'Tirar ' + t.nome + ' do combate', onclick: () => {
+            cb.ordem = cb.ordem.filter(x => x !== o); if (cb.vezId === o.id) cb.vezId = null; salvar(); enviarCombate();
+          } }));
+      }))));
+  }
+  // ações do token selecionado (ou de quem é a vez)
+  const t = c.tokens.find(x => x.id === tab.selecionado) || (cb?.cenaId === c.id ? c.tokens.find(x => x.id === cb.vezId) : null);
+  if (t) {
+    const alvos = c.tokens.filter(x => x.id !== t.id).map(x => ({ id: x.id, nome: x.nome + (x.oculto ? ' (escondido)' : '') }));
+    if (alvoMestre && !alvos.some(a => a.id === alvoMestre)) alvoMestre = '';
+    blocos.push(el('div', { class: 'bloco' }, titulo('Ações: ' + t.nome, el('span', { class: 'etiqueta cinza', texto: [t.ca != null ? 'CA ' + t.ca : '', t.desloc ? textoMetros(t.desloc) : '', t.visao ? 'visão ' + textoMetros(t.visao) : ''].filter(Boolean).join(' · ') })),
+      tabelaDeAcoes({
+        ficha: t.ficha, ini: t.ini, alvos, alvoId: alvoMestre, modo: modoMestre,
+        aoMudarAlvo: v => { alvoMestre = v; }, aoMudarModo: v => { modoMestre = v; desenharPainelMestre(); },
+        aoErro: m => avisar(m, true),
+        aoRolar: p => resolverPedido(p, { nome: 'Mestre', cor: '#d3bb7c' }, t, c.tokens.find(x => x.id === alvoMestre) || null, !!t.oculto || c.id !== M.ativa),
+      })));
+  } else blocos.push(el('p', { class: 'dica', texto: 'Clique num token para ver e rolar as ações dele aqui.' }));
+  return blocos;
+}
+
+// ---------- lista de monstros (livro + os seus da Área do Mestre) ----------
+let livroMonstros = null;
+async function carregarLivro() {
+  if (!livroMonstros) {
+    const r = await fetch('dados/monstros.json?v=' + VERSAO);
+    if (!r.ok) throw new Error('Não consegui abrir a lista de monstros.');
+    livroMonstros = (await r.json()).monstros;
+  }
+  return livroMonstros;
+}
+const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+async function abrirListaMonstros() {
+  let livro;
+  try { livro = await carregarLivro(); } catch (e) { avisar(e.message, true); return; }
+  M.meusMonstros ||= [];
+  const busca = el('input', { placeholder: 'Procurar: goblin, dragão, lobo…', 'aria-label': 'Procurar monstro', autocomplete: 'off' });
+  const escondido = el('input', { type: 'checkbox' });
+  const resultados = el('div', { class: 'lista resultados' });
+  const todos = () => [...M.meusMonstros.map(m => ({ ...m, meu: true })), ...livro];
+  const mostrar = () => {
+    const q = semAcento(busca.value.trim());
+    // nome exato primeiro, depois os que começam com o texto, depois o resto (em ordem alfabética)
+    const pontos = n => (n === q ? 0 : n.startsWith(q) ? 1 : 2);
+    const achados = todos().filter(m => !q || semAcento(m.n ?? m.name).includes(q))
+      .sort((a, b) => { const na = semAcento(a.n ?? a.name), nb = semAcento(b.n ?? b.name); return pontos(na) - pontos(nb) || na.localeCompare(nb); })
+      .slice(0, 60);
+    resultados.replaceChildren(...achados.map(m => el('button', { class: 'item', onclick: () => {
+      const c = cenaAberta(), base = tokenDoMonstro(m), centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
+      const n = { id: uid(), ...base, nome: c.tokens.some(t => t.nome === base.nome) ? proximoNome(c, base.nome) : base.nome, dono: '', oculto: escondido.checked, img: null,
+        x: cel.cx - Math.floor((celulasDe(base.tam) - 1) / 2), y: cel.cy - Math.floor((celulasDe(base.tam) - 1) / 2) };
+      c.tokens.push(n); tab.selecionado = n.id; tab.imagemSelecionada = null;
+      if (M.combate?.cenaId === c.id) M.combate.ordem.push({ id: n.id, ini: null });
+      salvar(); tab.redesenhar(); enviarToken(c, n); if (M.combate) enviarCombate();
+      avisar(`${n.nome} colocado no centro da tela.`);
+      desenharPainelMestre();
+    } },
+      el('span', { class: 'nome' }, el('strong', { texto: m.n ?? m.name }), el('small', { texto: ` ND ${m.nd ?? m.cr ?? '?'} · ${m.tp ?? m.type ?? ''} · ${m.tam ?? m.size ?? ''}` })),
+      m.meu ? el('span', { class: 'etiqueta ouro', texto: 'meu' }) : null,
+      el('span', { class: 'etiqueta cinza', texto: `CA ${m.ca ?? m.ac} · PV ${m.pv ?? m.hp}` }))),
+      ...(achados.length ? [] : [el('p', { class: 'vazio', texto: 'Nenhum monstro com esse nome.' })]));
+  };
+  busca.addEventListener('input', mostrar);
+  abrirModal('Monstros', [
+    busca,
+    el('div', { class: 'linha-campos meio' },
+      el('label', { class: 'marcar' }, escondido, 'Colocar escondido dos jogadores'),
+      el('span', { class: 'espaco' }),
+      el('button', { class: 'btn pequeno', texto: 'Importar meus monstros', title: 'Backup JSON da Área do Mestre da Ficha Arcana', onclick: async () => {
+        const arq = await escolherArquivo('.json,application/json'); if (!arq) return;
+        try {
+          const raw = JSON.parse(await arq.text());
+          if (raw?.kind !== 'arcana-dm' || !Array.isArray(raw.custom)) throw new Error('Este arquivo não é um backup da Área do Mestre.');
+          const meus = raw.custom.filter(m => m && m.name).slice(0, 1000);
+          M.meusMonstros = meus; salvar();
+          avisar(`${meus.length} monstro(s) seus importados.`); mostrar();
+        } catch (e) { avisar(e.message, true); }
+      } })),
+    resultados,
+    el('p', { class: 'dica', texto: `${livro.length} monstros do Livro dos Monstros 2024. O token já vem com PV, CA, deslocamento, tamanho e ataques.` }),
+  ]);
+  mostrar(); busca.focus();
+}
+function abrirModal(titulo2, conteudo) {
+  $('#modal-titulo').textContent = titulo2;
+  $('#modal-corpo').replaceChildren(...conteudo);
+  $('#modal').hidden = false;
+}
+function fecharModal() { $('#modal').hidden = true; }
 
 function painelGrade() {
   const c = cenaAberta(), q = c.grade;
@@ -785,7 +1055,10 @@ function painelBackup() {
 // =====================================================================
 //                               JOGADOR
 // =====================================================================
-const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null };
+const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null,
+  ficha: null, modo: 'normal', alvoId: '', tokenId: '', combate: null };
+function lerFichaGuardada() { try { return JSON.parse(localStorage.getItem('arcana-tab-ficha') || 'null'); } catch { return null; } }
+function guardarFicha(f) { try { localStorage.setItem('arcana-tab-ficha', JSON.stringify(f)); } catch { avisar('A ficha é grande demais para guardar neste aparelho; ela vale só para esta sessão.', true); } }
 
 function lerPerfil() { try { return JSON.parse(localStorage.getItem('arcana-tab-jogador') || 'null'); } catch { return null; } }
 function salvarPerfil(p) { try { localStorage.setItem('arcana-tab-jogador', JSON.stringify(p)); } catch {} }
@@ -801,14 +1074,19 @@ function limparCenaRecebida(c) {
     mapa: c.mapa && hashValido(c.mapa.hash) ? { hash: c.mapa.hash, w: inteiro(c.mapa.w, 1, 1e6, 1), h: inteiro(c.mapa.h, 1, 1e6, 1) } : null,
     tokens: Array.isArray(c.tokens) ? c.tokens.map(limparToken).filter(Boolean) : [],
     imagens: Array.isArray(c.imagens) ? c.imagens.map(limparImagem).filter(Boolean).slice(0, 500) : [],
+    dificil: Array.isArray(c.dificil) ? c.dificil.filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 20000) : [],
   };
 }
 function limparToken(t) {
   if (!t || typeof t !== 'object') return null;
   const r = { id: String(t.id).slice(0, 64), nome: String(t.nome || '').slice(0, 40), tipo: t.tipo === 'pc' ? 'pc' : 'npc', cor: corValida(t.cor) || '#5b7c66',
     tam: numero(t.tam, 0.5, 4, 1), x: inteiro(t.x, -500, 5000), y: inteiro(t.y, -500, 5000), dono: String(t.dono || ''), img: imagemValida(t.img) };
-  if (t.tipo === 'pc') { r.pv = inteiro(t.pv, -999, 9999); r.pvMax = inteiro(t.pvMax, 0, 9999); }
-  else r.estado = ['Ileso', 'Ferido', 'Muito ferido', 'Caído'].includes(t.estado) ? t.estado : '';
+  if (t.tipo === 'pc') {
+    r.pv = inteiro(t.pv, -999, 9999); r.pvMax = inteiro(t.pvMax, 0, 9999);
+    r.ca = t.ca == null ? null : inteiro(t.ca, 0, 40); r.desloc = numero(t.desloc, 0, 300); r.visao = numero(t.visao, 0, 300); r.ini = inteiro(t.ini, -10, 30);
+    r.outros = Object.fromEntries(Object.entries(t.outros && typeof t.outros === 'object' ? t.outros : {}).slice(0, 6).map(([k, v]) => [String(k).slice(0, 20), numero(v, 0, 300)]));
+    r.ficha = limparFichaDoToken(t.ficha);
+  } else r.estado = ['Ileso', 'Ferido', 'Muito ferido', 'Caído'].includes(t.estado) ? t.estado : '';
   return r;
 }
 function limparImagem(i) {
@@ -831,6 +1109,46 @@ const receber = criarReceptor(async (hash, blob, info) => {
 }, (hash, f) => {
   if (J.cena?.mapa?.hash === hash) avisoMapa(`Recebendo o mapa do mestre… ${Math.round(f * 100)}%`, f);
 });
+
+const CLASSES_RESULTADO = ['acerto', 'erro', 'critico'];
+function limparEntrada(e) {
+  if (!e || typeof e !== 'object') return null;
+  const t = (v, n) => String(v ?? '').slice(0, n);
+  return { id: t(e.id, 64), quem: t(e.quem, 40), cor: corValida(e.cor) || '#a4c29a', titulo: t(e.titulo, 80), alvoNome: e.alvoNome ? t(e.alvoNome, 40) : '',
+    linhas: (Array.isArray(e.linhas) ? e.linhas : []).slice(0, 10).map(l => ({ rotulo: t(l?.rotulo, 40), total: t(l?.total, 20), detalhe: t(l?.detalhe, 200) })),
+    resultado: e.resultado ? { texto: t(e.resultado.texto, 40), classe: CLASSES_RESULTADO.includes(e.resultado.classe) ? e.resultado.classe : '' } : null };
+}
+function limparCombate(c) {
+  if (!c || typeof c !== 'object' || !Array.isArray(c.ordem)) return null;
+  return { rodada: inteiro(c.rodada, 1, 9999, 1), vezId: c.vezId ? String(c.vezId).slice(0, 64) : null,
+    ordem: c.ordem.slice(0, 200).map(o => ({ id: String(o.id).slice(0, 64), nome: String(o.nome || '').slice(0, 40), ini: o.ini == null ? null : inteiro(o.ini, -20, 60) })),
+    andou: Object.fromEntries(Object.entries(c.andou && typeof c.andou === 'object' ? c.andou : {}).slice(0, 200).map(([k, v]) => [String(k).slice(0, 64), numero(v, 0, 9999)])) };
+}
+// O token que o jogador está usando agora (pode ter até 3)
+function meuToken() {
+  const meus = J.cena?.tokens.filter(t => t.dono === J.eu.id) || [];
+  return meus.find(t => t.id === J.tokenId) || meus[0] || null;
+}
+async function carregarFicha() {
+  const arq = await escolherArquivo('.json,application/json');
+  if (!arq) return;
+  try {
+    const bruta = JSON.parse(await arq.text());
+    const f = limparFicha(bruta); // confere antes de mandar
+    let retrato = null;
+    if (f.retrato) { try { retrato = await retratoPequeno(await (await fetch(f.retrato)).blob()); } catch {} }
+    const leve = { ...bruta, retrato: null };
+    J.ficha = { bruta: leve, retrato };
+    guardarFicha(J.ficha);
+    mandarFicha();
+    avisar(`Ficha de ${f.nome} carregada: CA ${f.ca}, ${f.pv}/${f.pvMax} PV, ${f.acoes.length} ações.`);
+  } catch (e) { avisar(e.message.includes('JSON') ? 'Este arquivo não é uma ficha válida.' : e.message, true); }
+}
+function mandarFicha() {
+  if (!J.ficha || !J.cena) return;
+  const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
+  J.conexao.enviar({ t: 'ficha', ficha: J.ficha.bruta, retrato: J.ficha.retrato, tokenId: meuToken()?.id || '', x: cel.cx, y: cel.cy });
+}
 
 function pedirMapa(hash) {
   if (J.esperando.has(hash)) return;
@@ -863,6 +1181,9 @@ function tratarMensagemDoMestre(msg) {
     return;
   }
   if (msg.t === 'mostrar-fim') { J.vitrine = null; fecharVitrine(false); return; }
+  if (msg.t === 'rolagem') { const e = limparEntrada(msg.e); if (e) janela.adicionar(e); return; }
+  if (msg.t === 'erro') { avisar(String(msg.texto || 'Erro').slice(0, 200), true); return; }
+  if (msg.t === 'combate') { J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador(); return; }
   const c = J.cena;
   if (msg.t === 'bemvindo' || msg.t === 'cena') { receberCena(msg.cena); return; }
   if (!c) return;
@@ -909,6 +1230,8 @@ function iniciarJogador(perfil, codigo) {
     imagemDe: hash => imagensAbertas.get(hash)?.m || null,
     aoPing: (x, y) => { tab.mostrarPing(x, y, J.eu.cor); J.conexao.enviar({ t: 'ping', x, y }); },
     aoLaser: (() => { const mandar = limitador(p => J.conexao?.enviar(p ? { t: 'laser', x: p.x, y: p.y } : { t: 'laser', fim: true })); return (x, y) => mandar(x == null ? null : { x, y }); })(),
+    extraDoToken: t => extraDoToken(t, J.combate, false),
+    limiteMovimento: t => (J.combate?.ordem.some(o => o.id === t.id) && t.desloc ? { andou: J.combate.andou[t.id] || 0, desloc: t.desloc } : null),
     aoRegua: r => {
       // manda no máximo 20 vezes por segundo
       reguaPendente = r;
@@ -916,7 +1239,14 @@ function iniciarJogador(perfil, codigo) {
       if (!r || agora - ultimaRegua > 50) { ultimaRegua = agora; J.conexao.enviar({ t: 'regua', a: r?.a, b: r?.b }); reguaPendente = null; }
       else setTimeout(() => { if (reguaPendente) { J.conexao.enviar({ t: 'regua', a: reguaPendente.a, b: reguaPendente.b }); reguaPendente = null; } }, 60);
     },
+  }, {
+    ehMestre: false,
+    aoRolarLivre: expr => {
+      try { J.conexao.enviar({ t: 'rolar', p: rolarLivre(expr), tokenId: meuToken()?.id || '' }); }
+      catch (e) { avisar(e.message, true); return false; }
+    },
   });
+  J.ficha = lerFichaGuardada();
   $('#mesa').classList.add('jogador');
   tab.corPropria = J.eu.cor;
   tab.definirCena({ tokens: [], imagens: [], grade: { tam: 70, ox: 0, oy: 0 }, colunas: 30, linhas: 20 });
@@ -943,32 +1273,65 @@ function iniciarJogador(perfil, codigo) {
 }
 
 function desenharPainelJogador() {
+  if (document.activeElement?.closest?.('#painel input, #painel select')) { clearTimeout(desenharPainelJogador.t); desenharPainelJogador.t = setTimeout(desenharPainelJogador, 800); return; }
   const meus = J.cena?.tokens.filter(t => t.dono === J.eu.id) || [];
-  $('#painel').replaceChildren(el('div', { class: 'conteudo' },
-    el('div', { class: 'bloco' }, titulo(J.cena ? J.cena.nome : 'Esperando o mestre'),
-      el('p', { class: 'dica', texto: `Você é ${J.eu.nome}.` })),
-    el('div', { class: 'bloco' }, titulo('Seus tokens'),
-      meus.length ? el('div', { class: 'lista' }, meus.map(t => el('button', { class: 'item', onclick: () => { tab.centralizarEm(t); $('#painel').classList.remove('aberto'); } },
-        el('span', { class: 'bola', style: `background:${t.cor}` }), el('span', { class: 'nome', texto: t.nome }),
-        t.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${t.pv}/${t.pvMax} PV` }) : null)))
-        : el('p', { class: 'vazio', texto: 'Você ainda não tem token nesta cena.' }),
-      J.cena && meus.length < 3 ? el('button', { class: 'btn primario', texto: meus.length ? '+ Outro token meu' : 'Colocar meu token no mapa', onclick: () => {
+  const eu = meuToken(), cb = J.combate;
+  const rolagem = $('#painel .conteudo')?.scrollTop || 0;
+  const blocos = [
+    el('div', { class: 'bloco' }, titulo(J.cena ? J.cena.nome : 'Esperando o mestre'), el('p', { class: 'dica', texto: `Você é ${J.eu.nome}.` })),
+  ];
+  // combate: ordem de iniciativa e de quem é a vez
+  if (cb) {
+    const minhaVez = meus.some(t => t.id === cb.vezId);
+    blocos.push(el('div', { class: 'bloco' }, titulo(`Combate · rodada ${cb.rodada}`),
+      minhaVez ? el('p', { class: 'sua-vez', texto: 'É a sua vez!' }) : null,
+      el('ol', { class: 'ordem' }, cb.ordem.map(o => el('li', { class: o.id === cb.vezId ? 'vez' : '' },
+        el('span', { texto: o.nome }), el('b', { texto: o.ini ?? '—' }))))));
+  }
+  // personagem
+  blocos.push(el('div', { class: 'bloco' }, titulo('Seu personagem'),
+    meus.length > 1 ? el('select', { 'aria-label': 'Token que você está usando', onchange: e => { J.tokenId = e.target.value; desenharPainelJogador(); } },
+      meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu?.id }))) : null,
+    eu ? el('div', { class: 'ficha-resumo' },
+      el('button', { class: 'item', onclick: () => { tab.centralizarEm(eu); $('#painel').classList.remove('aberto'); } },
+        el('span', { class: 'bola', style: `background:${eu.cor}` }), el('span', { class: 'nome', texto: eu.nome }),
+        eu.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${eu.pv}/${eu.pvMax} PV` }) : null),
+      el('div', { class: 'numeros' },
+        [['CA', eu.ca ?? '—'], ['Desloc.', eu.desloc ? textoMetros(eu.desloc) : '—'], ['Visão no escuro', eu.visao ? textoMetros(eu.visao) : '—'], ['Iniciativa', comSinal(eu.ini || 0)]]
+          .map(([r, v]) => el('div', {}, el('small', { texto: r }), el('b', { texto: String(v) })))),
+      Object.keys(eu.outros || {}).length ? el('p', { class: 'dica', texto: Object.entries(eu.outros).map(([k, v]) => `${k} ${textoMetros(v)}`).join(' · ') }) : null)
+      : el('p', { class: 'vazio', texto: 'Você ainda não tem token nesta cena.' }),
+    el('div', { class: 'acoes' },
+      J.cena && meus.length < 3 ? el('button', { class: 'btn pequeno primario', texto: meus.length ? '+ Outro token' : 'Colocar meu token no mapa', onclick: () => {
         const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
         J.conexao.enviar({ t: 'criar-token', nome: meus.length ? `${J.eu.nome} ${meus.length + 1}` : J.eu.nome, cor: J.eu.cor, x: cel.cx, y: cel.cy });
         $('#painel').classList.remove('aberto');
       } }) : null,
-      meus.length ? el('p', { class: 'dica', texto: 'Arraste o seu token no mapa para andar.' }) : null),
-    el('div', { class: 'bloco' }, titulo('Como usar'),
-      el('p', { class: 'dica', texto: celular
-        ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'
-        : 'Arraste seu token para andar. Arraste o fundo para mover a tela e use a rodinha para o zoom. Shift + clique faz um ping. R = régua.' })),
-    el('div', { class: 'bloco' }, titulo('Mapas guardados'),
-      el('button', { class: 'btn pequeno', texto: 'Apagar os mapas guardados neste aparelho', onclick: async () => {
-        if (!confirm('Apagar os mapas guardados? Eles serão baixados de novo do mestre quando precisar.')) return;
-        for (const k of await chaves('arquivos')) await apagar('arquivos', k);
-        avisar('Mapas apagados.');
-      } })),
-  ));
+      el('button', { class: 'btn pequeno', texto: J.ficha ? 'Trocar ficha' : 'Carregar minha ficha', title: 'Arquivo da Ficha Arcana: Exportar ficha › Exportar para o tabuleiro', onclick: carregarFicha }),
+      J.ficha && eu && !eu.ficha ? el('button', { class: 'btn pequeno', texto: 'Usar ficha neste token', onclick: mandarFicha }) : null)));
+  // ataques, macros e testes
+  if (eu) {
+    const alvos = (J.cena?.tokens || []).filter(t => t.id !== eu.id).map(t => ({ id: t.id, nome: t.nome }));
+    if (J.alvoId && !alvos.some(a => a.id === J.alvoId)) J.alvoId = '';
+    blocos.push(el('div', { class: 'bloco' }, titulo('Ataques e testes'),
+      tabelaDeAcoes({
+        ficha: eu.ficha, ini: eu.ini, alvos, alvoId: J.alvoId, modo: J.modo,
+        aoMudarAlvo: v => { J.alvoId = v; }, aoMudarModo: v => { J.modo = v; desenharPainelJogador(); },
+        aoErro: m => avisar(m, true),
+        aoRolar: p => J.conexao.enviar({ t: 'rolar', p, tokenId: eu.id, alvoId: J.alvoId }),
+      })));
+  }
+  blocos.push(el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),
+    el('p', { class: 'dica', texto: celular
+      ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'
+      : 'Arraste seu token para andar. Arraste o fundo para mover a tela e use a rodinha para o zoom. Shift + clique faz um ping. R = régua, L = bolinha.' }),
+    el('button', { class: 'btn pequeno', texto: 'Apagar os mapas guardados neste aparelho', onclick: async () => {
+      if (!confirm('Apagar os mapas guardados? Eles serão baixados de novo do mestre quando precisar.')) return;
+      for (const k of await chaves('arquivos')) await apagar('arquivos', k);
+      avisar('Mapas apagados.');
+    } })));
+  $('#painel').replaceChildren(el('div', { class: 'conteudo' }, blocos));
+  $('#painel .conteudo').scrollTop = rolagem;
 }
 
 // =====================================================================
