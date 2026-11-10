@@ -14,7 +14,7 @@ export function el(tag, props = {}, ...filhos) {
     else if (k in e && typeof v !== 'string') e[k] = v;
     else e.setAttribute(k, v === true ? '' : v);
   }
-  for (const f of filhos.flat()) if (f != null && f !== false) e.append(f.nodeType ? f : document.createTextNode(String(f)));
+  for (const f of filhos.flat(Infinity)) if (f != null && f !== false) e.append(f.nodeType ? f : document.createTextNode(String(f)));
   return e;
 }
 export function avisar(texto, erro = false) {

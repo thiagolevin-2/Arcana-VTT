@@ -1,42 +1,42 @@
-// rolagens.js — rolar ataques, danos e testes; a tabela de ações; e a janela "Rolagens".
+// rolagens.js — rolar ataques, danos e testes; a janela do dado (como na Ficha Arcana);
+// e a janela "Rolagens" (o histórico que todos veem).
 //
 // Quem clica rola os dados no próprio aparelho e manda o resultado ao mestre (um "pedido").
-// O mestre confere contra a CA do alvo (que os jogadores não veem), aplica o dano se acertou
-// e manda a "entrada" pronta para todos verem na janela de rolagens.
+// O mestre confere contra a CA do alvo (que os jogadores não veem) e devolve a "entrada" pronta.
+// O ataque é rolado primeiro; o dano vem depois, num segundo clique — igual à ficha.
 import { rolar, rolarD20, comSinal } from './dados.js';
-import { ATRIBUTOS } from './fichas.js';
-import { el } from './util.js';
-
-const MODOS = [['normal', 'Normal'], ['vantagem', 'Vantagem'], ['desvantagem', 'Desvant.']];
+import { el, uid } from './util.js';
 
 // ---------- cálculos ----------
-export function rolarAcao(acao, modo = 'normal') {
-  const p = { tipo: 'acao', titulo: acao.nome, danos: [], cd: acao.cd ?? null, salva: acao.salva ?? null };
-  let critico = false;
-  if (acao.acerto != null) {
-    const r = rolarD20(modo);
-    p.d20 = { valores: r.valores, escolhido: r.escolhido, bonus: acao.acerto, total: r.escolhido + acao.acerto, modo };
-    critico = r.escolhido >= (acao.critico || 20);
-    p.critico = critico; p.falha = r.escolhido === 1;
-    p.tipo = 'ataque';
-  }
-  for (const parte of acao.partes || []) {
+export function rolarAtaque(acao, modo = 'normal') {
+  const r = rolarD20(modo);
+  return {
+    id: uid(), tipo: 'ataque', titulo: acao.nome, danos: [],
+    d20: { valores: r.valores, escolhido: r.escolhido, bonus: acao.acerto, total: r.escolhido + acao.acerto, modo },
+    critico: r.escolhido >= (acao.critico || 20), falha: r.escolhido === 1,
+  };
+}
+// Ação de salvaguarda (CD): não tem d20 de quem age; o alvo é que rola.
+export function rolarAcaoComCD(acao) {
+  return { id: uid(), tipo: 'acao', titulo: acao.nome, danos: [], cd: acao.cd, salva: acao.salva || null };
+}
+export function rolarDano(acao, critico = false, ataqueId = null) {
+  const danos = (acao.partes || []).map(parte => {
     const r = rolar(parte.dano, { critico });
-    p.danos.push({ expr: parte.dano, total: Math.max(0, r.total), detalhe: r.detalhe, tipo: parte.tipo || '' });
-  }
-  p.danoTotal = p.danos.reduce((s, x) => s + x.total, 0);
-  return p;
+    return { expr: parte.dano, total: Math.max(0, r.total), detalhe: r.detalhe, tipo: parte.tipo || '' };
+  });
+  return { id: uid(), tipo: 'dano', titulo: 'Dano · ' + acao.nome, danos, danoTotal: danos.reduce((s, x) => s + x.total, 0), critico, ataqueId };
 }
 export function rolarTeste(nome, bonus, modo = 'normal', tipo = 'teste') {
   const r = rolarD20(modo);
-  return { tipo, titulo: nome, danos: [], d20: { valores: r.valores, escolhido: r.escolhido, bonus, total: r.escolhido + bonus, modo } };
+  return { id: uid(), tipo, titulo: nome, danos: [], d20: { valores: r.valores, escolhido: r.escolhido, bonus, total: r.escolhido + bonus, modo } };
 }
 export function rolarLivre(expr) {
   const r = rolar(expr);
-  return { tipo: 'livre', titulo: expr, danos: [], livre: { expr: r.expr, total: r.total, detalhe: r.detalhe } };
+  return { id: uid(), tipo: 'livre', titulo: expr, danos: [], livre: { expr: r.expr, total: r.total, detalhe: r.detalhe } };
 }
 
-// Transforma um pedido em linhas para mostrar (usado pelo mestre ao montar a entrada).
+// Transforma um pedido em linhas para mostrar (o mestre monta a entrada com isto).
 export function linhasDoPedido(p) {
   const linhas = [];
   if (p.d20) {
@@ -50,44 +50,108 @@ export function linhasDoPedido(p) {
   return linhas;
 }
 
-// ---------- tabela de ações (aba Ataques + Macros da ficha, ou ações do monstro) ----------
-// opcoes: { ficha, ini, alvos: [{id, nome}], alvoId, modo, aoMudarAlvo, aoMudarModo, aoRolar(pedido) }
-export function tabelaDeAcoes(o) {
-  const ficha = o.ficha || {};
-  const acoes = ficha.acoes || [];
-  const grupos = [...new Set(acoes.map(a => a.grupo || 'Ações'))];
-  const seguro = fazer => { try { o.aoRolar(fazer()); } catch (e) { o.aoErro?.(e.message); } };
+// ---------- janela do dado (igual à da ficha) ----------
+// abrir({ titulo, frase, acao, teste: { nome, bonus, tipo }, enviar(pedido) })
+//   acao: com acerto → rola o ataque; com CD → mostra a CD; depois, "Rolar dano".
+//   teste: rola d20 + bônus (atributo, perícia, salvaguarda, iniciativa).
+// resultado(entrada): o mestre respondeu (acertou/errou, dano aplicado) → atualiza a janela.
+const FRASES_ATAQUE = ['Cada ataque pode mudar o rumo da batalha.', 'Mire bem.', 'Agora é com os dados.'];
+const FRASES_TESTE = ['Deixe os dados contarem a história.', 'Que a sorte esteja com você.'];
+const MODOS = [['normal', 'Normal'], ['vantagem', 'Vantagem'], ['desvantagem', 'Desvantagem']];
+const sorteia = lista => lista[Math.floor(Math.random() * lista.length)];
 
-  const alvo = el('select', { 'aria-label': 'Alvo', onchange: e => o.aoMudarAlvo(e.target.value) },
-    el('option', { value: '', texto: 'Sem alvo' }),
-    (o.alvos || []).map(a => el('option', { value: a.id, texto: a.nome, selected: a.id === o.alvoId })));
-  const modos = el('div', { class: 'segmentos', role: 'radiogroup', 'aria-label': 'Modo do d20' },
-    MODOS.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(o.modo === v), texto: n, onclick: () => o.aoMudarModo(v) })));
+export function criarJanelaDado(raiz) {
+  let atual = null; // { opcoes, modo, pedido, dano, respostaAtaque, respostaDano }
 
-  const linhaAcao = a => {
-    const bonus = a.acerto != null ? comSinal(a.acerto) : a.cd != null ? `CD ${a.cd}` : '';
-    const dano = a.partes.map(p => `${p.dano}${p.tipo ? ' ' + p.tipo : ''}`).join(' + ');
-    return el('div', { class: 'acao', title: a.obs || '' },
-      el('div', { class: 'acao-nome' }, el('strong', { texto: a.nome }), el('small', { texto: [a.salva && a.cd != null ? `Salvaguarda de ${a.salva}` : '', dano].filter(Boolean).join(' · ') || a.obs || '' })),
-      el('span', { class: 'acao-bonus', texto: bonus }),
-      el('button', { class: 'btn pequeno primario', texto: 'Rolar', 'aria-label': 'Rolar ' + a.nome, onclick: () => seguro(() => rolarAcao(a, o.modo)) }));
+  function fechar() { raiz.hidden = true; atual = null; }
+  raiz.addEventListener('click', e => { if (e.target === raiz) fechar(); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !raiz.hidden) fechar(); });
+
+  function rolarD20Agora() {
+    const o = atual.opcoes;
+    try {
+      atual.pedido = o.acao ? (o.acao.acerto != null ? rolarAtaque(o.acao, atual.modo) : rolarAcaoComCD(o.acao)) : rolarTeste(o.teste.nome, o.teste.bonus, atual.modo, o.teste.tipo || 'teste');
+    } catch (e) { atual.erro = e.message; desenhar(); return; }
+    atual.dano = null; atual.respostaAtaque = null; atual.respostaDano = null;
+    o.enviar(atual.pedido);
+    desenhar();
+  }
+  function rolarDanoAgora() {
+    const o = atual.opcoes, p = atual.pedido;
+    try { atual.dano = rolarDano(o.acao, !!p.critico, p.tipo === 'ataque' ? p.id : null); }
+    catch (e) { atual.erro = e.message; desenhar(); return; }
+    atual.respostaDano = null;
+    o.enviar(atual.dano);
+    desenhar();
+  }
+
+  function dados(p) {
+    if (p.d20) return el('div', { class: 'dado-detalhe' },
+      p.d20.valores.map(v => el('span', { class: 'valor' + (p.d20.valores.length > 1 && v !== p.d20.escolhido ? ' descartado' : ''), texto: String(v) })),
+      el('span', { texto: comSinal(p.d20.bonus) }));
+    return el('div', { class: 'dado-detalhe' }, (p.danos || []).map(d => el('span', { class: 'parte', texto: `${d.expr}${d.tipo ? ' ' + d.tipo : ''}: ${d.detalhe} = ${d.total}` })));
+  }
+
+  function desenhar() {
+    if (!atual) return;
+    const o = atual.opcoes, p = atual.pedido, d = atual.dano, a = o.acao;
+    const ehAtaque = p?.tipo === 'ataque', ehCD = p?.tipo === 'acao';
+    let corpo;
+    if (d) {
+      // tela do dano
+      const res = atual.respostaDano?.resultado;
+      corpo = [
+        el('div', { class: 'dado-total' }, el('b', { texto: String(d.danoTotal) }), el('span', { texto: d.critico ? 'Dano crítico (dados dobrados)' : 'Dano total' })),
+        dados(d),
+        el('div', { class: 'dado-resultado ' + (res?.classe || ''), texto: res?.texto || (atual.respostaDano ? 'Dano registrado.' : 'Enviando ao mestre…') }),
+      ];
+    } else if (ehCD) {
+      corpo = [
+        el('div', { class: 'dado-total' }, el('b', { texto: 'CD ' + p.cd }), el('span', { texto: p.salva ? `Salvaguarda de ${p.salva}` : 'Salvaguarda' })),
+        el('p', { class: 'dica', texto: 'O alvo rola a salvaguarda. Depois, role o dano; o mestre decide se é inteiro ou metade.' }),
+      ];
+    } else if (p) {
+      const res = atual.respostaAtaque?.resultado;
+      const textoPadrao = ehAtaque ? (p.critico ? 'Acerto crítico!' : p.falha ? 'Falha no ataque' : 'Resultado do ataque') : 'Resultado do teste';
+      corpo = [
+        el('div', { class: 'modos', role: 'radiogroup', 'aria-label': 'Modo do d20' },
+          MODOS.map(([m, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual.modo === m), texto: n, onclick: () => { atual.modo = m; rolarD20Agora(); } }))),
+        el('div', { class: 'dado-total' + (p.critico ? ' critico' : p.falha ? ' falha' : '') }, el('b', { texto: String(p.d20.total) }),
+          el('span', { texto: textoPadrao })),
+        dados(p),
+        ehAtaque ? el('div', { class: 'dado-resultado ' + (res?.classe || ''), texto: res ? res.texto + (atual.respostaAtaque.alvoNome ? ' · ' + atual.respostaAtaque.alvoNome : '') : (o.alvoNome ? `Conferindo contra ${o.alvoNome}…` : 'Sem alvo: o mestre confere.') }) : null,
+        ehAtaque && a.critico < 20 ? el('p', { class: 'dica', texto: `Crítico com ${a.critico} ou mais.` }) : null,
+      ];
+    }
+    const podeDano = a && a.partes?.length && p && !d;
+    raiz.replaceChildren(el('div', { class: 'dado-caixa', role: 'dialog', 'aria-modal': 'true', 'aria-label': o.titulo },
+      el('header', {}, el('div', {}, el('h2', { texto: d ? 'Dano · ' + o.titulo : o.titulo }), el('p', { texto: o.frase })),
+        el('button', { class: 'btn pequeno', texto: 'Fechar', onclick: fechar })),
+      atual.erro ? el('p', { class: 'aviso erro', texto: atual.erro }) : null,
+      el('div', { class: 'dado-corpo' }, corpo),
+      el('footer', {},
+        p?.d20 && !d ? el('button', { class: 'btn', texto: 'Rolar novamente', onclick: rolarD20Agora }) : null,
+        podeDano ? el('button', { class: 'btn primario', texto: p.critico ? 'Dano crítico' : 'Rolar dano', disabled: !!p.falha, onclick: rolarDanoAgora }) : null,
+        d ? el('button', { class: 'btn', texto: 'Voltar ao ataque', onclick: () => { atual.dano = null; desenhar(); } }) : null)));
+    raiz.hidden = false;
+    raiz.querySelector('footer .primario, footer .btn')?.focus();
+  }
+
+  return {
+    abrir(opcoes) {
+      atual = { opcoes: { frase: sorteia(opcoes.acao ? FRASES_ATAQUE : FRASES_TESTE), ...opcoes }, modo: opcoes.modo || 'normal' };
+      rolarD20Agora();
+    },
+    resultado(entrada) {
+      if (!atual || !entrada) return;
+      if (atual.pedido && entrada.id === atual.pedido.id) { atual.respostaAtaque = entrada; desenhar(); }
+      else if (atual.dano && entrada.id === atual.dano.id) { atual.respostaDano = entrada; desenhar(); }
+    },
+    fechar,
   };
-
-  return el('div', { class: 'tabela-acoes' },
-    el('div', { class: 'linha-campos' }, el('label', { class: 'cresce' }, 'Alvo', alvo)),
-    modos,
-    acoes.length ? grupos.map(g => el('div', { class: 'grupo-acoes' }, el('h4', { texto: g }), acoes.filter(a => (a.grupo || 'Ações') === g).map(linhaAcao)))
-      : el('p', { class: 'vazio', texto: 'Sem ataques. Carregue a ficha exportada para o tabuleiro.' }),
-    el('div', { class: 'grupo-acoes' }, el('h4', { texto: 'Testes' }),
-      el('div', { class: 'testes' },
-        ATRIBUTOS.map(([k, sigla, nome]) => el('button', { class: 'btn pequeno', title: 'Teste de ' + nome, onclick: () => seguro(() => rolarTeste('Teste de ' + nome, ficha.atributos?.[k] ?? 0, o.modo)) },
-          sigla, el('small', { texto: ' ' + comSinal(ficha.atributos?.[k] ?? 0) }))),
-        el('button', { class: 'btn pequeno', title: 'Rolar iniciativa', onclick: () => seguro(() => rolarTeste('Iniciativa', o.ini ?? 0, o.modo, 'iniciativa')) },
-          'Inic.', el('small', { texto: ' ' + comSinal(o.ini ?? 0) })))),
-  );
 }
 
-// ---------- janela "Rolagens" ----------
+// ---------- janela "Rolagens" (histórico) ----------
 // opcoes: { ehMestre, aoRolarLivre(expr, secreta), aoAplicar(entrada, fator), aoDesfazer(entrada) }
 export function criarJanelaRolagens(raiz, o) {
   const lista = el('div', { class: 'rolagens-lista', role: 'log', 'aria-live': 'polite' });
@@ -108,7 +172,7 @@ export function criarJanelaRolagens(raiz, o) {
   raiz.replaceChildren(botaoAbrir, corpo);
 
   function desenhar(e) {
-    const caixa = el('article', { class: 'rolagem' + (e.secreta ? ' secreta' : '') },
+    return el('article', { class: 'rolagem' + (e.secreta ? ' secreta' : '') },
       el('header', {}, el('span', { class: 'bola', style: `background:${e.cor || '#a4c29a'}` }), el('strong', { texto: e.quem || '' }),
         el('span', { texto: e.titulo || '' }), e.alvoNome ? el('span', { class: 'alvo', texto: '→ ' + e.alvoNome }) : null,
         e.secreta ? el('span', { class: 'etiqueta cinza', texto: 'secreta' }) : null),
@@ -120,7 +184,6 @@ export function criarJanelaRolagens(raiz, o) {
           ? [el('span', { class: 'dica', texto: `−${e.aplicado} PV aplicados` }), el('button', { class: 'btn pequeno', texto: 'Desfazer', onclick: () => o.aoDesfazer(e) })]
           : [el('button', { class: 'btn pequeno', texto: `Aplicar ${e.dano}`, onclick: () => o.aoAplicar(e, 1) }),
             el('button', { class: 'btn pequeno', texto: `Metade (${Math.floor(e.dano / 2)})`, onclick: () => o.aoAplicar(e, 0.5) })]) : null);
-    return caixa;
   }
   return {
     adicionar(e) {

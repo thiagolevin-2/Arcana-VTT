@@ -47,6 +47,29 @@ function limparAcao(a, grupo) {
   return r.acerto != null || r.cd != null || r.partes.length ? r : null;
 }
 
+// Partes da versão 2: salvaguardas, perícias, valores, recursos (usos) e textos das habilidades.
+export const RECARGAS = { long: 'descanso longo', short: 'descanso curto', one: '1 por descanso curto, todos no longo' };
+function limparExtras(raw) {
+  const valores = {}, salvaguardas = {};
+  for (const [k] of ATRIBUTOS) {
+    if (raw.valores?.[k] != null) valores[k] = num(raw.valores[k], 1, 30, 10);
+    const sv = raw.salvaguardas?.[k];
+    if (sv && typeof sv === 'object') salvaguardas[k] = { bonus: num(sv.bonus, -10, 30), prof: !!sv.prof };
+  }
+  const pericias = (Array.isArray(raw.pericias) ? raw.pericias : []).slice(0, 40).map(p => ({
+    nome: texto(p?.nome, 30), atributo: ATRIBUTOS.some(a => a[0] === p?.atributo) ? p.atributo : 'str', bonus: num(p?.bonus, -10, 30), prof: [0, 1, 2].includes(p?.prof) ? p.prof : 0,
+  })).filter(p => p.nome);
+  const recursos = (Array.isArray(raw.recursos) ? raw.recursos : []).slice(0, 40).map(r => {
+    const max = num(r?.max, 0, 99, 0);
+    return { id: texto(r?.id, 60), nome: texto(r?.nome, 60), max, usados: num(r?.usados, 0, max, 0), recarga: ['long', 'short', 'one'].includes(r?.recarga) ? r.recarga : 'long', dica: texto(r?.dica, 200) };
+  }).filter(r => r.id && r.nome && r.max > 0);
+  const habilidades = (Array.isArray(raw.habilidades) ? raw.habilidades : []).slice(0, 200).map(h => ({
+    grupo: texto(h?.grupo, 20) || 'Outras', nome: texto(h?.nome, 80), origem: texto(h?.origem, 60), texto: texto(h?.texto, 3000),
+  })).filter(h => h.nome);
+  return { valores, salvaguardas, pericias, recursos, habilidades, percepcao: raw.percepcaoPassiva ?? raw.percepcao ?? null };
+}
+export function limparRecursos(lista) { return limparExtras({ recursos: lista }).recursos; }
+
 // Ficha exportada pela Ficha Arcana ("Exportar para o tabuleiro").
 export function limparFicha(raw) {
   if (!raw || typeof raw !== 'object' || raw.formato !== 'arcana-tabuleiro-ficha') throw new Error('Este arquivo não é uma ficha exportada para o tabuleiro. Na Ficha Arcana use: Exportar ficha › Exportar para o tabuleiro.');
@@ -58,7 +81,9 @@ export function limparFicha(raw) {
   for (const [k] of ATRIBUTOS) atributos[k] = num(raw.atributos?.[k], -5, 15, 0);
   const outros = {};
   for (const [k, v] of Object.entries(raw.outrosDeslocamentos || {}).slice(0, 6)) outros[texto(k, 20)] = num(v, 0, 300);
+  const extras = limparExtras(raw);
   return {
+    ...extras, percepcao: extras.percepcao == null ? null : num(extras.percepcao, 0, 40), pvTemp: num(raw.pvTemp, 0, 999),
     nome: texto(raw.nome, 40) || 'Personagem', resumo: texto(raw.resumo, 80), nivel: num(raw.nivel, 1, 30, 1),
     pv: num(raw.pv, -999, 9999), pvMax: num(raw.pvMax, 0, 9999), ca: num(raw.ca, 0, 40, 10), ini: num(raw.iniciativa, -10, 30),
     desloc: num(raw.deslocamento, 0, 300), outros, visao: num(raw.visaoNoEscuro, 0, 300), tam: num(raw.tamanho, 0.5, 4, 1),
@@ -88,7 +113,9 @@ export function tokenDoMonstro(m) {
     nome: texto(m.n ?? m.name, 40), tipo: 'npc', cor: '#8c3b3b', tam: quadradosDoTamanho(m.tam ?? m.size),
     pv: num(m.pv ?? m.hp, 0, 99999, 1), pvMax: num(m.pv ?? m.hp, 0, 99999, 1), ca: num(m.ca ?? m.ac, 0, 40, 10),
     ini: num(m.ini ?? m.initiative ?? mod(ab.dex), -10, 30), desloc, outros, visao: lerVisao(m.sen ?? m.senses),
-    ficha: { atributos: Object.fromEntries(ATRIBUTOS.map(([k]) => [k, mod(ab[k])])), acoes: acoesDoMonstro(m), nd: texto(m.nd ?? m.cr, 8) },
+    ficha: { atributos: Object.fromEntries(ATRIBUTOS.map(([k]) => [k, mod(ab[k])])), valores: Object.fromEntries(ATRIBUTOS.map(([k]) => [k, num(ab[k], 1, 30, 10)])),
+      acoes: acoesDoMonstro(m), nd: texto(m.nd ?? m.cr, 8),
+      habilidades: (m.ac || []).filter(a => a.d).map(a => ({ grupo: a.g || 'Ações', nome: texto(a.n, 80), origem: '', texto: texto(a.d, 3000) })) },
   };
 }
 
@@ -97,8 +124,11 @@ export function limparFichaDoToken(f) {
   if (!f || typeof f !== 'object') return null;
   const atributos = {};
   for (const [k] of ATRIBUTOS) atributos[k] = num(f.atributos?.[k], -5, 15, 0);
+  const extras = limparExtras(f);
   return {
     atributos, resumo: texto(f.resumo, 80), nd: f.nd ? texto(f.nd, 8) : undefined,
+    valores: extras.valores, salvaguardas: extras.salvaguardas, pericias: extras.pericias, habilidades: extras.habilidades,
+    percepcao: extras.percepcao == null ? null : num(extras.percepcao, 0, 40),
     acoes: (Array.isArray(f.acoes) ? f.acoes : []).slice(0, 80).map(a => limparAcao(a, a?.grupo)).filter(Boolean),
     magia: f.magia ? { acerto: num(f.magia.acerto, -10, 30), cd: num(f.magia.cd, 0, 40) } : null,
   };

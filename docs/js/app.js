@@ -2,14 +2,15 @@
 import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js';
 import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js';
 import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken } from './fichas.js';
-import { tabelaDeAcoes, criarJanelaRolagens, linhasDoPedido, rolarLivre, rolarTeste } from './rolagens.js';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste } from './rolagens.js';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js';
 import { comSinal } from './dados.js';
 import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js';
 
 import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js';
 
-const VERSAO = '0.4';
+const VERSAO = '0.5';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -71,13 +72,15 @@ function fecharVitrine(avisarJogadores = true) {
   if (avisarJogadores && papel === 'mestre') sala?.paraTodos({ t: 'mostrar-fim' });
 }
 
-let janela = null; // janela "Rolagens"
+let janela = null;     // janela "Rolagens" (histórico)
+let janelaDado = null; // janela do dado: ataque primeiro, dano depois
 
 function prepararTabuleiro(eventos, opcoesRolagens) {
   $('#inicio').hidden = true;
   $('#mesa').hidden = false;
   tab = criarTabuleiro($('#tela'), eventos);
   janela = criarJanelaRolagens($('#rolagens'), opcoesRolagens);
+  janelaDado = criarJanelaDado($('#dado'));
   $('#btn-dados').addEventListener('click', () => { $('#rolagens').classList.toggle('mostrar-celular'); janela.abrir(); });
   const dicas = {
     regua: 'Régua: arraste para medir. Cada quadrado = 1,5 m.',
@@ -145,7 +148,7 @@ function tokenParaJogador(t) {
   const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img };
   if (t.tipo === 'pc') {
     // personagens: números e ações vão para todos (a CA dos monstros continua secreta)
-    Object.assign(c, { pv: t.pv, pvMax: t.pvMax, ca: t.ca, desloc: t.desloc, outros: t.outros, visao: t.visao, ini: t.ini, ficha: t.ficha || null });
+    Object.assign(c, { pv: t.pv, pvMax: t.pvMax, pvTemp: t.pvTemp || 0, recursos: t.recursos || [], ca: t.ca, desloc: t.desloc, outros: t.outros, visao: t.visao, ini: t.ini, ficha: t.ficha || null });
   } else c.estado = estadoDe(t.pv, t.pvMax);
   return c;
 }
@@ -259,21 +262,32 @@ function postar(e, { secreta = false } = {}) {
   sala?.paraTodos({ t: 'rolagem', e: paraJogadores(entrada) });
   return entrada;
 }
-const paraJogadores = e => ({ ...e, alvoId: undefined, aplicado: undefined });
+const paraJogadores = e => ({ ...e, alvoId: undefined, aplicado: undefined, desfazer: undefined });
 // Recebe um pedido de rolagem (do jogador ou do próprio mestre) e monta a entrada.
+// O ataque vem primeiro (acertou/errou); o dano vem depois, num pedido separado que aponta para o ataque.
+const ataquesRecentes = new Map(); // id do ataque -> { acertou, critico, alvoId, secreta }
 function resolverPedido(p, autor, atacante, alvo, secreta = false) {
-  const e = { quem: atacante?.nome || autor.nome, cor: atacante?.cor || autor.cor, titulo: p.titulo, linhas: linhasDoPedido(p) };
-  if (alvo && (p.tipo === 'ataque' || p.danoTotal > 0 || p.cd != null)) { e.alvoId = alvo.id; e.alvoNome = alvo.oculto && !secreta ? 'alvo escondido' : alvo.nome; }
+  const e = { id: p.id, quem: atacante?.nome || autor.nome, cor: atacante?.cor || autor.cor, titulo: p.titulo, linhas: linhasDoPedido(p) };
+  const ataque = p.tipo === 'dano' && p.ataqueId ? ataquesRecentes.get(p.ataqueId) : null;
+  if (ataque) { alvo = tokenPorId(ataque.alvoId)?.t || null; secreta = secreta || ataque.secreta; }
+  if (alvo && (p.tipo === 'ataque' || p.tipo === 'dano' || p.cd != null)) { e.alvoId = alvo.id; e.alvoNome = alvo.oculto && !secreta ? 'alvo escondido' : alvo.nome; }
   if (p.tipo === 'ataque') {
-    if (p.critico) e.resultado = { texto: 'Crítico! Acertou', classe: 'critico' };
+    if (p.critico) e.resultado = { texto: 'Acerto crítico!', classe: 'critico' };
     else if (p.falha) e.resultado = { texto: 'Errou (1 natural)', classe: 'erro' };
     else if (alvo && Number.isFinite(alvo.ca)) e.resultado = p.d20.total >= alvo.ca ? { texto: 'Acertou!', classe: 'acerto' } : { texto: 'Errou', classe: 'erro' };
+    else if (alvo) e.resultado = { texto: 'O mestre decide se acertou', classe: '' };
+    ataquesRecentes.set(p.id, { acertou: ['acerto', 'critico'].includes(e.resultado?.classe), errou: e.resultado?.classe === 'erro', critico: !!p.critico, alvoId: alvo?.id || null, secreta });
+    if (ataquesRecentes.size > 100) ataquesRecentes.delete(ataquesRecentes.keys().next().value);
   }
-  const acertou = e.resultado?.classe === 'acerto' || e.resultado?.classe === 'critico';
-  if (p.danoTotal > 0) e.dano = p.danoTotal;
+  let aplicarSozinho = false;
+  if (p.tipo === 'dano' && p.danoTotal > 0) {
+    e.dano = p.danoTotal;
+    if (ataque?.acertou && alvo) { aplicarSozinho = true; e.resultado = { texto: `Dano aplicado em ${e.alvoNome}`, classe: 'acerto' }; }
+    else if (ataque?.errou) e.resultado = { texto: 'O ataque errou: dano não aplicado', classe: 'erro' };
+    else if (alvo) e.resultado = { texto: 'O mestre aplica (inteiro ou metade)', classe: '' };
+  }
   const entrada = postar(e, { secreta });
-  // acertou um alvo com CA conhecida: o dano vai sozinho
-  if (acertou && alvo && p.danoTotal > 0) aplicarDano(entrada, 1);
+  if (aplicarSozinho) aplicarDano(entrada, 1);
   // iniciativa entra sozinha no combate
   if (p.tipo === 'iniciativa' && atacante && M.combate?.ordem.some(o => o.id === atacante.id)) definirIniciativa(atacante.id, p.d20.total);
   return entrada;
@@ -282,24 +296,29 @@ function tokenPorId(id) { for (const c of M.cenas) { const t = c.tokens.find(x =
 function aplicarDano(entrada, fator) {
   const achado = tokenPorId(entrada.alvoId); if (!achado) return;
   const { c, t } = achado, dano = Math.floor(entrada.dano * fator);
-  t.pv = Math.max(0, (t.pv || 0) - dano);
-  entrada.aplicado = dano;
+  // PV temporários absorvem primeiro
+  const absorvido = Math.min(t.pvTemp || 0, dano);
+  t.pvTemp = (t.pvTemp || 0) - absorvido;
+  const tirado = Math.min(t.pv || 0, dano - absorvido);
+  t.pv = (t.pv || 0) - tirado;
+  entrada.aplicado = dano; entrada.desfazer = { absorvido, tirado };
   salvar(); tab.redesenhar(); enviarToken(c, t); atualizarSeAba('tokens', 'combate');
   janela.adicionar(entrada);
 }
 function desfazerDano(entrada) {
   const achado = tokenPorId(entrada.alvoId); if (!achado || !entrada.aplicado) return;
-  const { c, t } = achado;
-  t.pv = Math.min(t.pvMax || 99999, (t.pv || 0) + entrada.aplicado);
-  entrada.aplicado = 0;
+  const { c, t } = achado, d = entrada.desfazer || { absorvido: 0, tirado: entrada.aplicado };
+  t.pv = (t.pv || 0) + d.tirado; t.pvTemp = (t.pvTemp || 0) + d.absorvido;
+  entrada.aplicado = 0; entrada.desfazer = null;
   salvar(); tab.redesenhar(); enviarToken(c, t); atualizarSeAba('tokens', 'combate');
   janela.adicionar(entrada);
 }
 // Confere um pedido vindo da rede (o jogador rolou no aparelho dele)
 function pedidoValido(p) {
-  if (!p || typeof p !== 'object' || !['ataque', 'acao', 'teste', 'iniciativa', 'livre'].includes(p.tipo)) return null;
+  if (!p || typeof p !== 'object' || !['ataque', 'acao', 'dano', 'teste', 'iniciativa', 'livre'].includes(p.tipo)) return null;
   const n = (v, a, b) => numero(v, a, b, 0);
-  const r = { tipo: p.tipo, titulo: String(p.titulo || '').slice(0, 60), danos: [], cd: p.cd != null ? n(p.cd, 1, 40) : null, salva: p.salva ? String(p.salva).slice(0, 20) : null,
+  const r = { id: /^[\w-]{8,64}$/.test(p.id || '') ? p.id : uid(), ataqueId: /^[\w-]{8,64}$/.test(p.ataqueId || '') ? p.ataqueId : null,
+    tipo: p.tipo, titulo: String(p.titulo || '').slice(0, 60), danos: [], cd: p.cd != null ? n(p.cd, 1, 40) : null, salva: p.salva ? String(p.salva).slice(0, 20) : null,
     critico: !!p.critico, falha: !!p.falha };
   if (p.d20) {
     const valores = (Array.isArray(p.d20.valores) ? p.d20.valores : []).slice(0, 2).map(v => inteiro(v, 1, 20, 1));
@@ -314,8 +333,10 @@ function pedidoValido(p) {
 
 // Dados de token a partir da ficha carregada pelo jogador
 function aplicarFichaNoToken(t, f) {
-  Object.assign(t, { nome: f.nome, pv: f.pv, pvMax: f.pvMax, ca: f.ca, ini: f.ini, desloc: f.desloc, outros: f.outros, visao: f.visao, tam: f.tam,
-    ficha: { atributos: f.atributos, acoes: f.acoes, magia: f.magia, resumo: f.resumo } });
+  Object.assign(t, { nome: f.nome, pv: f.pv, pvMax: f.pvMax, pvTemp: f.pvTemp || 0, ca: f.ca, ini: f.ini, desloc: f.desloc, outros: f.outros, visao: f.visao, tam: f.tam,
+    recursos: f.recursos || [],
+    ficha: { atributos: f.atributos, valores: f.valores, salvaguardas: f.salvaguardas, pericias: f.pericias, percepcao: f.percepcao,
+      habilidades: f.habilidades, acoes: f.acoes, magia: f.magia, resumo: f.resumo } });
   if (f.retratoPequeno) t.img = f.retratoPequeno;
 }
 
@@ -459,6 +480,30 @@ function tratarMensagemDoJogador(j, msg) {
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens', 'combate');
     avisar(`${j.nome} carregou a ficha de ${f.nome}.`);
+  } else if (msg.t === 'meu-token' && c) {
+    const t = c.tokens.find(x => x.id === msg.id && x.dono === j.id); if (!t) return;
+    const v = inteiro(msg.valor, 0, 9999, 0);
+    let linha = null;
+    if (msg.acao === 'dano' && v) {
+      const absorvido = Math.min(t.pvTemp || 0, v); t.pvTemp = (t.pvTemp || 0) - absorvido; t.pv = Math.max(0, (t.pv || 0) - (v - absorvido));
+      linha = { rotulo: 'Dano', total: '−' + v, detalhe: `PV ${t.pv}/${t.pvMax}${absorvido ? ` · ${absorvido} absorvido pelos temporários` : ''}` };
+    } else if (msg.acao === 'cura' && v) {
+      t.pv = Math.min(t.pvMax || 9999, (t.pv || 0) + v); linha = { rotulo: 'Cura', total: '+' + v, detalhe: `PV ${t.pv}/${t.pvMax}` };
+    } else if (msg.acao === 'temp' && v) {
+      t.pvTemp = v; linha = { rotulo: 'PV temporários', total: v, detalhe: 'não se somam: vale o novo valor' };
+    } else if (msg.acao === 'usar' || msg.acao === 'restaurar') {
+      const r = (t.recursos || []).find(x => x.id === msg.recurso); if (!r) return;
+      if (msg.acao === 'usar' && r.usados < r.max) r.usados++; else if (msg.acao === 'restaurar' && r.usados > 0) r.usados--; else return;
+      linha = { rotulo: msg.acao === 'usar' ? 'Usou' : 'Restaurou', total: `${r.max - r.usados}/${r.max}`, detalhe: r.nome };
+    } else if (msg.acao === 'descanso') {
+      const longo = msg.tipo === 'longo';
+      for (const r of t.recursos || []) { if (longo || r.recarga === 'short') r.usados = 0; else if (r.recarga === 'one') r.usados = Math.max(0, r.usados - 1); }
+      if (longo) { t.pv = t.pvMax || t.pv; t.pvTemp = 0; }
+      linha = { rotulo: longo ? 'Descanso longo' : 'Descanso curto', total: '✓', detalhe: longo ? 'PV e usos recuperados' : 'usos de descanso curto recuperados' };
+    } else return;
+    salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
+    enviarToken(c, t); atualizarSeAba('tokens', 'combate');
+    if (!t.oculto) postar({ quem: t.nome, cor: t.cor, titulo: linha.rotulo, linhas: [linha] });
   } else if (msg.t === 'rolar') {
     const p = pedidoValido(msg.p); if (!p) return;
     const ativa = cenaAtiva();
@@ -837,13 +882,16 @@ function painelCombate() {
   if (t) {
     const alvos = c.tokens.filter(x => x.id !== t.id).map(x => ({ id: x.id, nome: x.nome + (x.oculto ? ' (escondido)' : '') }));
     if (alvoMestre && !alvos.some(a => a.id === alvoMestre)) alvoMestre = '';
+    const secreta = !!t.oculto || c.id !== M.ativa;
+    const enviar = p => janelaDado.resultado(resolverPedido(p, { nome: 'Mestre', cor: '#d3bb7c' }, t, c.tokens.find(x => x.id === alvoMestre) || null, secreta));
     blocos.push(el('div', { class: 'bloco' }, titulo('Ações: ' + t.nome, el('span', { class: 'etiqueta cinza', texto: [t.ca != null ? 'CA ' + t.ca : '', t.desloc ? textoMetros(t.desloc) : '', t.visao ? 'visão ' + textoMetros(t.visao) : ''].filter(Boolean).join(' · ') })),
-      tabelaDeAcoes({
-        ficha: t.ficha, ini: t.ini, alvos, alvoId: alvoMestre, modo: modoMestre,
-        aoMudarAlvo: v => { alvoMestre = v; }, aoMudarModo: v => { modoMestre = v; desenharPainelMestre(); },
-        aoErro: m => avisar(m, true),
-        aoRolar: p => resolverPedido(p, { nome: 'Mestre', cor: '#d3bb7c' }, t, c.tokens.find(x => x.id === alvoMestre) || null, !!t.oculto || c.id !== M.ativa),
-      })));
+      abaCombate(t, {
+        alvos, alvoId: alvoMestre, aoMudarAlvo: v => { alvoMestre = v; },
+        aoAcao: a => janelaDado.abrir({ titulo: a.nome, acao: a, alvoNome: c.tokens.find(x => x.id === alvoMestre)?.nome, enviar }),
+        aoTeste: (nome, bonus, tipo) => janelaDado.abrir({ titulo: nome, teste: { nome, bonus, tipo }, enviar }),
+      }),
+      el('details', { class: 'bloco' }, el('summary', { texto: 'Atributos e salvaguardas' }),
+        abaAtributos(t, { aoTeste: (nome, bonus, tipo) => janelaDado.abrir({ titulo: nome, teste: { nome, bonus, tipo }, enviar }) }))));
   } else blocos.push(el('p', { class: 'dica', texto: 'Clique num token para ver e rolar as ações dele aqui.' }));
   return blocos;
 }
@@ -1055,7 +1103,7 @@ function painelBackup() {
 // =====================================================================
 //                               JOGADOR
 // =====================================================================
-const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null,
+const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null, aba: 'personagem',
   ficha: null, modo: 'normal', alvoId: '', tokenId: '', combate: null };
 function lerFichaGuardada() { try { return JSON.parse(localStorage.getItem('arcana-tab-ficha') || 'null'); } catch { return null; } }
 function guardarFicha(f) { try { localStorage.setItem('arcana-tab-ficha', JSON.stringify(f)); } catch { avisar('A ficha é grande demais para guardar neste aparelho; ela vale só para esta sessão.', true); } }
@@ -1086,6 +1134,7 @@ function limparToken(t) {
     r.ca = t.ca == null ? null : inteiro(t.ca, 0, 40); r.desloc = numero(t.desloc, 0, 300); r.visao = numero(t.visao, 0, 300); r.ini = inteiro(t.ini, -10, 30);
     r.outros = Object.fromEntries(Object.entries(t.outros && typeof t.outros === 'object' ? t.outros : {}).slice(0, 6).map(([k, v]) => [String(k).slice(0, 20), numero(v, 0, 300)]));
     r.ficha = limparFichaDoToken(t.ficha);
+    r.pvTemp = inteiro(t.pvTemp, 0, 999); r.recursos = limparRecursos(t.recursos);
   } else r.estado = ['Ileso', 'Ferido', 'Muito ferido', 'Caído'].includes(t.estado) ? t.estado : '';
   return r;
 }
@@ -1181,7 +1230,7 @@ function tratarMensagemDoMestre(msg) {
     return;
   }
   if (msg.t === 'mostrar-fim') { J.vitrine = null; fecharVitrine(false); return; }
-  if (msg.t === 'rolagem') { const e = limparEntrada(msg.e); if (e) janela.adicionar(e); return; }
+  if (msg.t === 'rolagem') { const e = limparEntrada(msg.e); if (e) { janela.adicionar(e); janelaDado.resultado(e); } return; }
   if (msg.t === 'erro') { avisar(String(msg.texto || 'Erro').slice(0, 200), true); return; }
   if (msg.t === 'combate') { J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador(); return; }
   const c = J.cena;
@@ -1277,60 +1326,63 @@ function desenharPainelJogador() {
   const meus = J.cena?.tokens.filter(t => t.dono === J.eu.id) || [];
   const eu = meuToken(), cb = J.combate;
   const rolagem = $('#painel .conteudo')?.scrollTop || 0;
-  const blocos = [
-    el('div', { class: 'bloco' }, titulo(J.cena ? J.cena.nome : 'Esperando o mestre'), el('p', { class: 'dica', texto: `Você é ${J.eu.nome}.` })),
-  ];
-  // combate: ordem de iniciativa e de quem é a vez
-  if (cb) {
-    const minhaVez = meus.some(t => t.id === cb.vezId);
-    blocos.push(el('div', { class: 'bloco' }, titulo(`Combate · rodada ${cb.rodada}`),
-      minhaVez ? el('p', { class: 'sua-vez', texto: 'É a sua vez!' }) : null,
-      el('ol', { class: 'ordem' }, cb.ordem.map(o => el('li', { class: o.id === cb.vezId ? 'vez' : '' },
-        el('span', { texto: o.nome }), el('b', { texto: o.ini ?? '—' }))))));
-  }
-  // personagem
-  blocos.push(el('div', { class: 'bloco' }, titulo('Seu personagem'),
-    meus.length > 1 ? el('select', { 'aria-label': 'Token que você está usando', onchange: e => { J.tokenId = e.target.value; desenharPainelJogador(); } },
-      meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu?.id }))) : null,
-    eu ? el('div', { class: 'ficha-resumo' },
-      el('button', { class: 'item', onclick: () => { tab.centralizarEm(eu); $('#painel').classList.remove('aberto'); } },
-        el('span', { class: 'bola', style: `background:${eu.cor}` }), el('span', { class: 'nome', texto: eu.nome }),
-        eu.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${eu.pv}/${eu.pvMax} PV` }) : null),
-      el('div', { class: 'numeros' },
-        [['CA', eu.ca ?? '—'], ['Desloc.', eu.desloc ? textoMetros(eu.desloc) : '—'], ['Visão no escuro', eu.visao ? textoMetros(eu.visao) : '—'], ['Iniciativa', comSinal(eu.ini || 0)]]
-          .map(([r, v]) => el('div', {}, el('small', { texto: r }), el('b', { texto: String(v) })))),
-      Object.keys(eu.outros || {}).length ? el('p', { class: 'dica', texto: Object.entries(eu.outros).map(([k, v]) => `${k} ${textoMetros(v)}`).join(' · ') }) : null)
-      : el('p', { class: 'vazio', texto: 'Você ainda não tem token nesta cena.' }),
-    el('div', { class: 'acoes' },
-      J.cena && meus.length < 3 ? el('button', { class: 'btn pequeno primario', texto: meus.length ? '+ Outro token' : 'Colocar meu token no mapa', onclick: () => {
-        const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
-        J.conexao.enviar({ t: 'criar-token', nome: meus.length ? `${J.eu.nome} ${meus.length + 1}` : J.eu.nome, cor: J.eu.cor, x: cel.cx, y: cel.cy });
-        $('#painel').classList.remove('aberto');
-      } }) : null,
-      el('button', { class: 'btn pequeno', texto: J.ficha ? 'Trocar ficha' : 'Carregar minha ficha', title: 'Arquivo da Ficha Arcana: Exportar ficha › Exportar para o tabuleiro', onclick: carregarFicha }),
-      J.ficha && eu && !eu.ficha ? el('button', { class: 'btn pequeno', texto: 'Usar ficha neste token', onclick: mandarFicha }) : null)));
-  // ataques, macros e testes
-  if (eu) {
+  const enviar = p => J.conexao.enviar({ t: 'rolar', p, tokenId: eu?.id || '', alvoId: J.alvoId });
+  const rolarTesteJanela = (nome, bonus, tipo) => janelaDado.abrir({ titulo: nome, teste: { nome, bonus, tipo }, enviar });
+  const mudar = (acao, extra = {}) => J.conexao.enviar({ t: 'meu-token', id: eu.id, acao, ...extra });
+
+  // faixa do combate (aparece em todas as abas)
+  const faixa = cb ? el('div', { class: 'faixa-combate' + (meus.some(t => t.id === cb.vezId) ? ' minha-vez' : '') },
+    el('strong', { texto: meus.some(t => t.id === cb.vezId) ? 'É a sua vez!' : `Rodada ${cb.rodada} · vez de ${cb.ordem.find(o => o.id === cb.vezId)?.nome || '—'}` }),
+    el('ol', { class: 'ordem' }, cb.ordem.map(o => el('li', { class: o.id === cb.vezId ? 'vez' : '' }, el('span', { texto: o.nome }), el('b', { texto: o.ini ?? '—' }))))) : null;
+
+  // botões de token e ficha
+  const botoesFicha = el('div', { class: 'acoes' },
+    J.cena && meus.length < 3 ? el('button', { class: 'btn pequeno primario', texto: meus.length ? '+ Outro token' : 'Colocar meu token no mapa', onclick: () => {
+      const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
+      J.conexao.enviar({ t: 'criar-token', nome: meus.length ? `${J.eu.nome} ${meus.length + 1}` : J.eu.nome, cor: J.eu.cor, x: cel.cx, y: cel.cy });
+      $('#painel').classList.remove('aberto');
+    } }) : null,
+    el('button', { class: 'btn pequeno', texto: J.ficha ? 'Trocar ficha' : 'Carregar minha ficha', title: 'Arquivo da Ficha Arcana: Exportar ficha › Exportar para o tabuleiro', onclick: carregarFicha }),
+    J.ficha && eu && !eu.ficha ? el('button', { class: 'btn pequeno', texto: 'Usar ficha neste token', onclick: mandarFicha }) : null,
+    eu ? el('button', { class: 'btn pequeno', texto: 'Achar no mapa', onclick: () => { tab.centralizarEm(eu); $('#painel').classList.remove('aberto'); } }) : null);
+
+  let corpo;
+  if (!eu) {
+    corpo = [el('div', { class: 'bloco' }, titulo(J.cena ? J.cena.nome : 'Esperando o mestre'),
+      el('p', { class: 'dica', texto: `Você é ${J.eu.nome}. Coloque seu token no mapa e carregue a ficha exportada da Ficha Arcana.` }), botoesFicha)];
+  } else if (J.aba === 'atributos') corpo = abaAtributos(eu, { aoTeste: rolarTesteJanela });
+  else if (J.aba === 'combate') {
     const alvos = (J.cena?.tokens || []).filter(t => t.id !== eu.id).map(t => ({ id: t.id, nome: t.nome }));
     if (J.alvoId && !alvos.some(a => a.id === J.alvoId)) J.alvoId = '';
-    blocos.push(el('div', { class: 'bloco' }, titulo('Ataques e testes'),
-      tabelaDeAcoes({
-        ficha: eu.ficha, ini: eu.ini, alvos, alvoId: J.alvoId, modo: J.modo,
-        aoMudarAlvo: v => { J.alvoId = v; }, aoMudarModo: v => { J.modo = v; desenharPainelJogador(); },
-        aoErro: m => avisar(m, true),
-        aoRolar: p => J.conexao.enviar({ t: 'rolar', p, tokenId: eu.id, alvoId: J.alvoId }),
-      })));
-  }
-  blocos.push(el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),
-    el('p', { class: 'dica', texto: celular
-      ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'
-      : 'Arraste seu token para andar. Arraste o fundo para mover a tela e use a rodinha para o zoom. Shift + clique faz um ping. R = régua, L = bolinha.' }),
-    el('button', { class: 'btn pequeno', texto: 'Apagar os mapas guardados neste aparelho', onclick: async () => {
-      if (!confirm('Apagar os mapas guardados? Eles serão baixados de novo do mestre quando precisar.')) return;
-      for (const k of await chaves('arquivos')) await apagar('arquivos', k);
-      avisar('Mapas apagados.');
-    } })));
-  $('#painel').replaceChildren(el('div', { class: 'conteudo' }, blocos));
+    corpo = abaCombate(eu, {
+      alvos, alvoId: J.alvoId, aoMudarAlvo: v => { J.alvoId = v; },
+      aoAcao: a => janelaDado.abrir({ titulo: a.nome, acao: a, alvoNome: alvos.find(x => x.id === J.alvoId)?.nome, enviar }),
+      aoTeste: rolarTesteJanela,
+    });
+  } else if (J.aba === 'habilidades') corpo = abaHabilidades(eu);
+  else corpo = abaPersonagem(eu, {
+    podeEditar: true,
+    aoVida: (acao, valor) => mudar(acao, { valor }),
+    aoRecurso: (recurso, acao) => mudar(acao, { recurso }),
+    aoDescanso: tipo => { if (confirm(tipo === 'longo' ? 'Descanso longo: recupera todos os PV e usos. Confirmar?' : 'Descanso curto: recupera os usos de descanso curto. Confirmar?')) mudar('descanso', { tipo }); },
+    extras: [
+      meus.length > 1 ? el('label', {}, 'Token que você está usando', el('select', { onchange: e => { J.tokenId = e.target.value; desenharPainelJogador(); } },
+        meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu.id })))) : null,
+      botoesFicha,
+      el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),
+        el('p', { class: 'dica', texto: celular
+          ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'
+          : 'Arraste seu token para andar. Arraste o fundo para mover a tela e use a rodinha para o zoom. Shift + clique faz um ping. R = régua, L = bolinha.' }),
+        el('button', { class: 'btn pequeno', texto: 'Apagar os mapas guardados neste aparelho', onclick: async () => {
+          if (!confirm('Apagar os mapas guardados? Eles serão baixados de novo do mestre quando precisar.')) return;
+          for (const k of await chaves('arquivos')) await apagar('arquivos', k);
+          avisar('Mapas apagados.');
+        } })),
+    ].filter(Boolean),
+  });
+  $('#painel').replaceChildren(
+    eu ? barraDeAbas(J.aba, a => { J.aba = a; desenharPainelJogador(); $('#painel .conteudo').scrollTop = 0; }) : '',
+    el('div', { class: 'conteudo' }, faixa, corpo));
   $('#painel .conteudo').scrollTop = rolagem;
 }
 
