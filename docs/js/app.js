@@ -1,17 +1,18 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.8';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.8';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.8';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.8';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.8';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.8';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.8';
-import { comSinal } from './dados.js?v=0.8';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.8';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.9';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.9';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.9';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.9';
+import { LUZES } from './visao.js?v=0.9';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.9';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.9';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.9';
+import { comSinal } from './dados.js?v=0.9';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.9';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.8';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.9';
 
-const VERSAO = '0.8';
+const VERSAO = '0.9';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -117,6 +118,7 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     laser: 'Bolinha com rastro: segure o botão e mexa o mouse. Todos veem o caminho.',
     grade: 'Ajustar grade: arraste por cima de UM quadrado desenhado no mapa, de canto a canto.',
     nevoa: 'Névoa: arraste para revelar ou esconder. As opções ficam na barra de cima.',
+    paredes: 'Paredes: clique ponto a ponto (a grade puxa para os cantos). Duplo clique termina. Na ferramenta Mover: clique abre/fecha a porta, duplo clique tranca.',
     terreno: 'Terreno difícil: clique ou arraste para pintar. Comece num quadrado já pintado para apagar. Custa o dobro para andar.',
   };
   const escolher = f => {
@@ -137,8 +139,8 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     const k = e.key.toLowerCase();
     if (k === 'escape' && !$('#vitrine').hidden) { fecharVitrine(true); return; }
     if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping'); else if (k === 'l') escolher('laser');
-    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'n' && papel === 'mestre') escolher('nevoa'); else if (k === 'f') tab.enquadrar();
-    else if (k === 'escape') escolher('mover');
+    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'n' && papel === 'mestre') escolher('nevoa'); else if (k === 'w' && papel === 'mestre') escolher('paredes'); else if (k === 'f') tab.enquadrar();
+    else if (k === 'escape') { if (tab.ferramenta === 'paredes' && tab.cadeia) tab.terminarParede(); else escolher('mover'); }
     else eventos.aoTecla?.(e);
   });
   $('#btn-painel').addEventListener('click', () => {
@@ -153,6 +155,26 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
 // =====================================================================
 // combate: { cenaId, ordem: [{ id, ini }], vezId, rodada, andou: { tokenId: metros } }
 // fichas: a última ficha que cada jogador carregou (para criar o token dele em outras cenas)
+// ---------- visão dinâmica (fase 3b) ----------
+// Monta o que o tabuleiro precisa para calcular a visão: quem enxerga (observadores), as luzes e as paredes.
+const metrosParaPx = (cena, m) => m / 1.5 * cena.grade.tam;
+function centroDoToken(cena, t) { const q = cena.grade, n = celulasDe(t.tam); return { x: q.ox + (t.x + n / 2) * q.tam, y: q.oy + (t.y + n / 2) * q.tam }; }
+function luzesDaCena(cena) {
+  const px = m => metrosParaPx(cena, m);
+  return [
+    ...(cena.luzes || []).map(l => { const p = LUZES[l.tipo] || LUZES.tocha; return { x: l.x, y: l.y, plena: px(p.plena), penumbra: px(p.penumbra), fixa: true }; }),
+    ...cena.tokens.filter(t => t.luz && LUZES[t.luz]).map(t => ({ ...centroDoToken(cena, t), plena: px(LUZES[t.luz].plena), penumbra: px(LUZES[t.luz].penumbra) })),
+  ];
+}
+function configDaVisao(cena, observadores) {
+  if (!cena?.visao?.ativa) return null;
+  return {
+    ambiente: cena.visao.ambiente || 'escuro',
+    observadores: observadores.map(t => ({ ...centroDoToken(cena, t), escuro: metrosParaPx(cena, t.visao || 0) })),
+    luzes: luzesDaCena(cena), paredes: cena.paredes || [], alcance: cena.grade.tam * 120,
+  };
+}
+
 // galeria: tokens que o mestre subiu ({ id, nome, img, dono }); bloqueados: jogadores expulsos
 const M = { codigo: null, cenas: [], aberta: null, ativa: null, conhecidos: {}, combate: null, fichas: {}, galeria: [], bloqueados: {} };
 let sala = null, abaMestre = 'cenas', salvarTimer = null, escolherFerramenta = null, rascunhoNovo = null;
@@ -165,7 +187,7 @@ function novaCena(nome) {
     tokens: [], imagens: [],
   };
 }
-function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
+function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; c.paredes ||= []; c.luzes ||= []; c.visao ||= { ativa: false, ambiente: 'escuro' }; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
 const cenaAberta = () => M.cenas.find(c => c.id === M.aberta) || M.cenas[0];
 const cenaAtiva = () => M.cenas.find(c => c.id === M.ativa) || null;
 const salvar = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => guardar('dados', 'mestre', M).catch(e => avisar('Não consegui salvar: ' + e.message, true)), 300); };
@@ -177,7 +199,7 @@ const hashesUsados = () => new Set(M.cenas.flatMap(c => [
 
 // O que um jogador pode ver de uma cena: sem tokens/imagens escondidos, monstros sem PV exato.
 function tokenParaJogador(t) {
-  const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img };
+  const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img, luz: t.luz || '' };
   if (t.tipo === 'pc') {
     // personagens: números e ações vão para todos (a CA dos monstros continua secreta)
     Object.assign(c, { pv: t.pv, pvMax: t.pvMax, pvTemp: t.pvTemp || 0, recursos: t.recursos || [], ca: t.ca, desloc: t.desloc, outros: t.outros, visao: t.visao, ini: t.ini, ficha: t.ficha || null });
@@ -205,6 +227,10 @@ function cenaParaJogador(cena, j) {
     tokens: cena.tokens.filter(t => visivelParaJogadores(t, cena)).map(tokenParaJogador),
     dificil: cena.dificil || [],
     nevoa: cena.nevoa?.ativa ? { ativa: true, reveladas: cena.nevoa.reveladas } : { ativa: false, reveladas: [] },
+    // visão dinâmica: as paredes vão junto (o aparelho do jogador calcula o que ele vê)
+    visao: cena.visao?.ativa ? { ativa: true, ambiente: cena.visao.ambiente } : { ativa: false },
+    paredes: cena.visao?.ativa ? cena.paredes.map(w => ({ id: w.id, a: w.a, b: w.b, tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
+    luzes: cena.visao?.ativa ? cena.luzes : [],
     imagens: (cena.imagens || []).filter(i => !i.oculto).map(i => ({
       id: i.id, hash: j.celular ? i.leve : i.hash, w: i.w, h: i.h, x: i.x, y: i.y, largura: i.largura, rot: i.rot, camada: i.camada,
     })),
@@ -231,21 +257,25 @@ function ordenarCombate() {
   // maior iniciativa primeiro; empate: maior bônus; quem não rolou vai para o fim
   cb.ordem.sort((a, b) => (b.ini ?? -99) - (a.ini ?? -99) || iniDe(b.id) - iniDe(a.id));
 }
-// O que os jogadores sabem do combate (sem tokens escondidos; movimento só dos personagens)
-function combateParaJogadores() {
+// O que cada jogador sabe do combate (sem tokens escondidos; movimento só dos personagens).
+// A iniciativa: cada um vê só o próprio número; dos outros, só se já rolou.
+function combateParaJogadores(j) {
   const cb = M.combate, c = cenaDoCombate();
   if (!cb || !c || c.id !== M.ativa) return null;
   const visiveis = new Map(c.tokens.filter(t => visivelParaJogadores(t, c)).map(t => [t.id, t]));
   return {
     rodada: cb.rodada, vezId: visiveis.has(cb.vezId) ? cb.vezId : null,
-    ordem: cb.ordem.filter(o => visiveis.has(o.id)).map(o => ({ id: o.id, nome: visiveis.get(o.id).nome, ini: o.ini })),
+    ordem: cb.ordem.filter(o => visiveis.has(o.id)).map(o => {
+      const meu = j && visiveis.get(o.id).dono === j.id;
+      return { id: o.id, nome: visiveis.get(o.id).nome, ini: meu ? o.ini : null, rolou: o.ini != null };
+    }),
     andou: Object.fromEntries(Object.entries(cb.andou || {}).filter(([id]) => visiveis.get(id)?.tipo === 'pc')),
   };
 }
 function enviarCombate() {
   tab?.redesenhar();
   if (tab) tab.pulsando = !!M.combate && cenaAberta().id === M.combate.cenaId;
-  sala?.paraTodos({ t: 'combate', combate: combateParaJogadores() });
+  for (const j of sala?.jogadores.values() || []) sala.enviar(j, { t: 'combate', combate: combateParaJogadores(j) });
   atualizarSeAba('combate');
 }
 function comecarCombate() {
@@ -458,7 +488,24 @@ async function iniciarMestre() {
       n.reveladas = [...set]; tab.redesenhar();
     },
     aoTerminarNevoa: () => { salvar(); enviarCena(); },
-    aoFerramenta: f => { $('#opcoes-nevoa').hidden = f !== 'nevoa'; if (f === 'nevoa') desenharOpcoesNevoa(); },
+    aoFerramenta: f => {
+      $('#opcoes-nevoa').hidden = f !== 'nevoa'; if (f === 'nevoa') desenharOpcoesNevoa();
+      $('#opcoes-paredes').hidden = f !== 'paredes'; if (f === 'paredes') desenharOpcoesParedes(); else tab.terminarParede?.();
+    },
+    // o mestre vê tudo; com "Ver como", vê o que aquele token enxerga
+    configVisao: () => { const c = cenaAberta(), t = verComo && c.tokens.find(x => x.id === verComo); return t ? configDaVisao(c, [t]) : null; },
+    ehMeu: t => t.id === verComo,
+    luzesParaDesenhar: () => (cenaAberta().visao?.ativa ? luzesDaCena(cenaAberta()) : (cenaAberta().luzes || []).length ? luzesDaCena(cenaAberta()) : []),
+    aoNovaParede: (a, b, tipo) => { const c = cenaAberta(); c.paredes.push({ id: uid(), a, b, tipo, aberta: false, trancada: false }); salvar(); tab.redesenhar(); enviarParedes(c); },
+    aoNovaLuz: (x, y) => { const c = cenaAberta(); c.luzes.push({ id: uid(), x, y, tipo: luzEscolhida }); salvar(); tab.redesenhar(); enviarParedes(c); },
+    aoApagar: (tipo, id) => {
+      const c = cenaAberta();
+      if (tipo === 'luz') c.luzes = c.luzes.filter(l => l.id !== id); else c.paredes = c.paredes.filter(w => w.id !== id);
+      salvar(); tab.redesenhar(); enviarParedes(c);
+    },
+    aoPorta: w => { w.aberta = !w.aberta; salvar(); tab.redesenhar(); enviarParedes(cenaAberta()); },
+    // duplo clique: tranca/destranca (os dois cliques simples abrem e fecham, então a porta volta como estava)
+    aoTrancar: w => { w.trancada = !w.trancada; salvar(); tab.redesenhar(); enviarParedes(cenaAberta()); avisar(w.trancada ? 'Porta trancada: os jogadores não abrem.' : 'Porta destrancada.'); },
     aoSelecionar: t => { if (t) abaMestre = 'tokens'; desenharPainelMestre(); },
     aoEditar: t => { tab.selecionado = t.id; tab.imagemSelecionada = null; abaMestre = 'tokens'; desenharPainelMestre(); abrirPainelCelular(); },
     imagemDe: hash => imagensAbertas.get(hash)?.m || null,
@@ -473,6 +520,7 @@ async function iniciarMestre() {
       avisar('Grade ajustada. Use os campos da aba Grade para o ajuste fino.');
     },
     aoTecla: e => {
+      if (tab.ferramenta === 'nevoa' && (e.key === '[' || e.key === ']')) { mudarPincel(e.key === ']' ? 1 : -1); return; }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const c = cenaAberta();
       const t = c.tokens.find(x => x.id === tab.selecionado);
@@ -516,7 +564,7 @@ function ligarSala() {
       salvar();
       const c = cenaAtiva();
       sala.enviar(j, { t: 'bemvindo', versao: VERSAO, cena: c ? cenaParaJogador(c, j) : null });
-      sala.enviar(j, { t: 'combate', combate: combateParaJogadores() });
+      sala.enviar(j, { t: 'combate', combate: combateParaJogadores(j) });
       for (const e of historico.slice(-15)) sala.enviar(j, { t: 'rolagem', e: paraJogadores(e), antiga: true }); // sem animação
       sala.enviar(j, { t: 'galeria', itens: galeriaPara(j) });
       avisar(`${j.nome} entrou na mesa.`);
@@ -562,6 +610,11 @@ function tratarMensagemDoJogador(j, msg) {
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens', 'combate');
     avisar(`${j.nome} carregou a ficha de ${f.nome}.`);
+  } else if (msg.t === 'porta' && c) {
+    const w = c.paredes.find(x => x.id === msg.id && x.tipo === 'porta');
+    if (!w) return;
+    if (w.trancada) { sala.enviar(j, { t: 'erro', texto: 'A porta está trancada.' }); return; }
+    w.aberta = !w.aberta; salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); enviarCena();
   } else if (msg.t === 'galeria-escolher') {
     escolhaDaGaleria(j, msg.id ? String(msg.id).slice(0, 64) : null);
   } else if (msg.t === 'meu-token' && c) {
@@ -579,6 +632,9 @@ function tratarMensagemDoJogador(j, msg) {
       const r = (t.recursos || []).find(x => x.id === msg.recurso); if (!r) return;
       if (msg.acao === 'usar' && r.usados < r.max) r.usados++; else if (msg.acao === 'restaurar' && r.usados > 0) r.usados--; else return;
       linha = { rotulo: msg.acao === 'usar' ? 'Usou' : 'Restaurou', total: `${r.max - r.usados}/${r.max}`, detalhe: r.nome };
+    } else if (msg.acao === 'luz') {
+      t.luz = LUZES[msg.luz] ? msg.luz : '';
+      linha = { rotulo: 'Luz', total: t.luz ? LUZES[t.luz].nome : 'apagada', detalhe: t.luz ? `${LUZES[t.luz].plena} m de luz plena + ${LUZES[t.luz].penumbra} m de penumbra` : '' };
     } else if (msg.acao === 'descanso') {
       const longo = msg.tipo === 'longo';
       for (const r of t.recursos || []) { if (longo || r.recarga === 'short') r.usados = 0; else if (r.recarga === 'one') r.usados = Math.max(0, r.usados - 1); }
@@ -776,7 +832,8 @@ function painelTokens() {
       tam: numero(rascunho.tam, 0.5, 4, 1),
       pv: inteiro(rascunho.pv, -999, 9999, 0), pvMax: inteiro(rascunho.pvMax, 0, 9999, 0),
       ca: rascunho.ca === '' || rascunho.ca == null ? null : inteiro(rascunho.ca, 0, 40, 10), desloc: numero(rascunho.desloc, 0, 300, 9),
-      dono: rascunho.dono || '', oculto: !!rascunho.oculto, img: imagemValida(rascunho.img),
+      dono: rascunho.dono || '', oculto: !!rascunho.oculto, img: imagemValida(rascunho.img), luz: LUZES[rascunho.luz] ? rascunho.luz : '',
+      visao: numero(rascunho.visao, 0, 300, 0),
     };
   }
   function aplicar() { Object.assign(t, lerFormulario()); salvar(); tab.redesenhar(); enviarToken(c, t); }
@@ -806,7 +863,10 @@ function painelTokens() {
       el('label', { class: 'curto' }, 'PV máx.', campo('pvMax', { type: 'number', min: 0, inputmode: 'numeric' })),
       el('label', { class: 'curto' }, 'CA', campo('ca', { type: 'number', min: 0, inputmode: 'numeric' })),
       el('label', { class: 'curto' }, 'Desloc. m', campo('desloc', { type: 'number', min: 0, step: 1.5, inputmode: 'decimal' }))),
-    el('label', {}, 'Quem move', donos),
+    el('div', { class: 'linha-campos' }, el('label', { class: 'cresce' }, 'Quem move', donos),
+      el('label', { class: 'cresce' }, 'Luz', el('select', { onchange: e => { rascunho.luz = e.target.value; if (t) aplicar(); } },
+        el('option', { value: '', texto: 'Nenhuma' }), Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: l.nome, selected: rascunho.luz === k })))),
+      el('label', { class: 'curto' }, 'Escuro m', campo('visao', { type: 'number', min: 0, step: 1.5, inputmode: 'decimal', title: 'Visão no escuro em metros' }))),
     t ? el('div', { class: 'linha-campos' }, el('div', { class: 'curto' }, ajustePV),
       el('button', { class: 'btn pequeno perigo cresce', texto: '− Dano', onclick: () => mudarPV(-1) }),
       el('button', { class: 'btn pequeno cresce', texto: '+ Cura', onclick: () => mudarPV(1) })) : null,
@@ -945,7 +1005,29 @@ async function mostrarATodos(im) {
   for (const j of sala.jogadores.values()) sala.enviar(j, { t: 'mostrar', hash: j.celular ? im.leve : im.hash, nome: im.nome });
 }
 
+// ---------- barra de opções das paredes, portas e luzes ----------
+let verComo = '', luzEscolhida = 'tocha';
+function enviarParedes(c) { if (c.id === M.ativa && c.visao?.ativa) enviarCena(); }
+function desenharOpcoesParedes() {
+  const c = cenaAberta(), o = tab.paredes;
+  const seg = (lista, atual, mudar) => el('div', { class: 'segmentos' }, lista.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual === v), texto: n, onclick: () => { mudar(v); desenharOpcoesParedes(); } })));
+  $('#opcoes-paredes').replaceChildren(...[
+    el('label', { class: 'marcar', title: 'Cada jogador vê só o que o personagem enxerga' }, el('input', { type: 'checkbox', checked: !!c.visao.ativa, onchange: e => { c.visao.ativa = e.target.checked; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesParedes(); } }), 'Visão dinâmica'),
+    el('select', { 'aria-label': 'Luz do ambiente', title: 'Luz do ambiente', onchange: e => { c.visao.ambiente = e.target.value; salvar(); tab.redesenhar(); enviarParedes(c); } },
+      [['dia', 'Dia (tudo iluminado)'], ['penumbra', 'Penumbra'], ['escuro', 'Escuridão']].map(([v, n]) => el('option', { value: v, texto: n, selected: c.visao.ambiente === v }))),
+    seg([['parede', 'Parede'], ['porta', 'Porta'], ['luz', 'Luz'], ['apagar', 'Apagar']], o.modo, v => { o.modo = v; tab.terminarParede?.(); }),
+    o.modo === 'luz' ? el('select', { 'aria-label': 'Tipo de luz', onchange: e => { luzEscolhida = e.target.value; } },
+      Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: `${l.nome} (${l.plena}+${l.penumbra} m)`, selected: luzEscolhida === k }))) : null,
+    el('select', { 'aria-label': 'Ver como', title: 'Ver o tabuleiro como um personagem enxerga', onchange: e => { verComo = e.target.value; tab.redesenhar(); } },
+      el('option', { value: '', texto: 'Ver: tudo (mestre)' }),
+      c.tokens.filter(t => t.tipo === 'pc' || t.visao).map(t => el('option', { value: t.id, texto: 'Ver como ' + t.nome, selected: verComo === t.id }))),
+    el('button', { class: 'btn pequeno perigo', texto: 'Apagar paredes', onclick: () => { if (!confirm('Apagar todas as paredes, portas e luzes desta cena?')) return; c.paredes = []; c.luzes = []; salvar(); tab.redesenhar(); enviarParedes(c); } }),
+    el('span', { class: 'dica', texto: o.modo === 'parede' ? 'Clique ponto a ponto; duplo clique termina.' : o.modo === 'porta' ? 'Arraste de um lado ao outro da porta.' : o.modo === 'luz' ? 'Clique onde fica a luz.' : 'Clique numa parede, porta ou luz.' }),
+  ].filter(Boolean));
+}
+
 // ---------- barra de opções da névoa ----------
+function mudarPincel(d) { tab.nevoa.raio = Math.max(0, Math.min(15, tab.nevoa.raio + d)); tab.redesenhar(); desenharOpcoesNevoa(); }
 function ligarNevoa(c, ligada) {
   c.nevoa.ativa = ligada; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesNevoa(); atualizarSeAba('cenas');
 }
@@ -955,9 +1037,11 @@ function desenharOpcoesNevoa() {
   $('#opcoes-nevoa').replaceChildren(...[
     el('label', { class: 'marcar' }, el('input', { type: 'checkbox', checked: !!c.nevoa.ativa, onchange: e => ligarNevoa(c, e.target.checked) }), 'Névoa ligada'),
     seg([['revelar', 'Revelar'], ['esconder', 'Esconder']], o.acao, v => { o.acao = v; }),
-    seg([['pincel', 'Pincel'], ['retangulo', 'Retângulo']], o.forma, v => { o.forma = v; }),
-    o.forma === 'pincel' ? el('select', { 'aria-label': 'Tamanho do pincel', onchange: e => { o.raio = Number(e.target.value); } },
-      [[0, '1 quadrado'], [1, '3×3'], [2, '5×5'], [3, '7×7']].map(([v, n]) => el('option', { value: v, texto: n, selected: o.raio === v }))) : null,
+    seg([['redondo', 'Redondo'], ['pincel', 'Quadrado'], ['retangulo', 'Retângulo']], o.forma, v => { o.forma = v; }),
+    o.forma !== 'retangulo' ? el('div', { class: 'tamanho-pincel', title: 'Tamanho do pincel (teclas [ e ])' },
+      el('button', { class: 'btn pequeno', texto: '−', 'aria-label': 'Pincel menor', onclick: () => mudarPincel(-1) }),
+      el('span', { texto: o.raio === 0 ? '1 quadrado' : `raio ${o.raio}` }),
+      el('button', { class: 'btn pequeno', texto: '+', 'aria-label': 'Pincel maior', onclick: () => mudarPincel(1) })) : null,
     el('button', { class: 'btn pequeno', texto: 'Cobrir tudo', title: 'Esconde de novo tudo o que foi revelado', onclick: () => {
       if (!confirm('Cobrir a cena inteira com névoa de novo?')) return;
       c.nevoa.reveladas = []; if (!c.nevoa.ativa) c.nevoa.ativa = true; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesNevoa();
@@ -1317,12 +1401,20 @@ function limparCenaRecebida(c) {
     tokens: Array.isArray(c.tokens) ? c.tokens.map(limparToken).filter(Boolean) : [],
     imagens: Array.isArray(c.imagens) ? c.imagens.map(limparImagem).filter(Boolean).slice(0, 500) : [],
     dificil: Array.isArray(c.dificil) ? c.dificil.filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 20000) : [],
+    visao: c.visao?.ativa ? { ativa: true, ambiente: ['dia', 'penumbra', 'escuro'].includes(c.visao.ambiente) ? c.visao.ambiente : 'escuro' } : { ativa: false },
+    paredes: (Array.isArray(c.paredes) ? c.paredes : []).slice(0, 5000).map(limparParede).filter(Boolean),
+    luzes: (Array.isArray(c.luzes) ? c.luzes : []).slice(0, 300).map(l => (l && Number.isFinite(l.x) && Number.isFinite(l.y) ? { id: String(l.id).slice(0, 64), x: l.x, y: l.y, tipo: LUZES[l.tipo] ? l.tipo : 'tocha' } : null)).filter(Boolean),
     nevoa: c.nevoa?.ativa ? { ativa: true, reveladas: (Array.isArray(c.nevoa.reveladas) ? c.nevoa.reveladas : []).filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 200000) } : { ativa: false, reveladas: [] },
   };
 }
+function limparParede(w) {
+  const pt = p => (p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 1e7 && Math.abs(p.y) < 1e7 ? { x: p.x, y: p.y } : null);
+  const a = pt(w?.a), b = pt(w?.b);
+  return a && b ? { id: String(w.id).slice(0, 64), a, b, tipo: w.tipo === 'porta' ? 'porta' : 'parede', aberta: !!w.aberta, trancada: !!w.trancada } : null;
+}
 function limparToken(t) {
   if (!t || typeof t !== 'object') return null;
-  const r = { id: String(t.id).slice(0, 64), nome: String(t.nome || '').slice(0, 40), tipo: t.tipo === 'pc' ? 'pc' : 'npc', cor: corValida(t.cor) || '#5b7c66',
+  const r = { luz: LUZES[t.luz] ? t.luz : '', id: String(t.id).slice(0, 64), nome: String(t.nome || '').slice(0, 40), tipo: t.tipo === 'pc' ? 'pc' : 'npc', cor: corValida(t.cor) || '#5b7c66',
     tam: numero(t.tam, 0.5, 4, 1), x: inteiro(t.x, -500, 5000), y: inteiro(t.y, -500, 5000), dono: String(t.dono || ''), img: imagemValida(t.img) };
   if (t.tipo === 'pc') {
     r.pv = inteiro(t.pv, -999, 9999); r.pvMax = inteiro(t.pvMax, 0, 9999);
@@ -1374,7 +1466,7 @@ function limparAnimacao(a) {
 function limparCombate(c) {
   if (!c || typeof c !== 'object' || !Array.isArray(c.ordem)) return null;
   return { rodada: inteiro(c.rodada, 1, 9999, 1), vezId: c.vezId ? String(c.vezId).slice(0, 64) : null,
-    ordem: c.ordem.slice(0, 200).map(o => ({ id: String(o.id).slice(0, 64), nome: String(o.nome || '').slice(0, 40), ini: o.ini == null ? null : inteiro(o.ini, -20, 60) })),
+    ordem: c.ordem.slice(0, 200).map(o => ({ id: String(o.id).slice(0, 64), nome: String(o.nome || '').slice(0, 40), ini: o.ini == null ? null : inteiro(o.ini, -20, 60), rolou: !!o.rolou })),
     andou: Object.fromEntries(Object.entries(c.andou && typeof c.andou === 'object' ? c.andou : {}).slice(0, 200).map(([k, v]) => [String(k).slice(0, 64), numero(v, 0, 9999)])) };
 }
 // O token que o jogador está usando agora (pode ter até 3)
@@ -1412,6 +1504,9 @@ function pedirMapa(hash) {
 async function receberCena(c) {
   const anterior = J.cena?.id;
   J.cena = limparCenaRecebida(c);
+  // memória do que já foi visto, por cena (fica enquanto a página estiver aberta)
+  J.explorado ||= {};
+  if (J.cena) tab.explorado = (J.explorado[J.cena.id] ||= new Set());
   tab.definirCena(J.cena || { tokens: [], imagens: [], grade: { tam: 70, ox: 0, oy: 0 } });
   for (const h of imagensDaCena(J.cena)) abrirImagem(h).then(tem => { if (!tem) pedirMapa(h); });
   if (J.cena?.mapa) {
@@ -1501,6 +1596,10 @@ function iniciarJogador(perfil, codigo) {
     aoPing: (x, y) => { tab.mostrarPing(x, y, J.eu.cor); J.conexao.enviar({ t: 'ping', x, y }); },
     aoLaser: (() => { const mandar = limitador(p => J.conexao?.enviar(p ? { t: 'laser', x: p.x, y: p.y } : { t: 'laser', fim: true })); return (x, y) => mandar(x == null ? null : { x, y }); })(),
     extraDoToken: t => extraDoToken(t, J.combate, false),
+    // visão dinâmica: o jogador vê pelos olhos dos próprios tokens
+    configVisao: () => (J.cena ? configDaVisao(J.cena, J.cena.tokens.filter(t => t.dono === J.eu.id)) : null),
+    ehMeu: t => t.dono === J.eu.id,
+    aoPorta: w => J.conexao.enviar({ t: 'porta', id: w.id }),
     limiteMovimento: t => (J.combate?.ordem.some(o => o.id === t.id) && t.desloc ? { andou: J.combate.andou[t.id] || 0, desloc: t.desloc } : null),
     aoRegua: r => {
       // manda no máximo 20 vezes por segundo
@@ -1593,7 +1692,8 @@ function desenharPainelJogador() {
       // a iniciativa do meu token que ainda não foi rolada vira um botão
       const meuSemIni = o.ini == null && meus.some(t => t.id === o.id);
       return el('li', { class: o.id === cb.vezId ? 'vez' : '' }, el('span', { texto: o.nome }),
-        meuSemIni ? el('button', { class: 'btn pequeno primario piscando', texto: 'Rolar iniciativa', onclick: rolarIniciativaJogador }) : el('b', { texto: o.ini ?? '—' }));
+        meuSemIni ? el('button', { class: 'btn pequeno primario piscando', texto: 'Rolar iniciativa', onclick: rolarIniciativaJogador })
+          : el('b', { texto: o.ini != null ? String(o.ini) : o.rolou ? '✓' : '…', title: o.ini != null ? 'Sua iniciativa' : o.rolou ? 'Já rolou' : 'Ainda não rolou' }));
     }))) : null;
 
   // botões de token e ficha
@@ -1634,6 +1734,8 @@ function desenharPainelJogador() {
         meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu.id })))) : null,
       botoesFicha,
       escolhaDeToken(),
+      J.cena?.visao?.ativa ? el('label', {}, 'Sua luz (tocha, lampião…)', el('select', { onchange: e => mudar('luz', { luz: e.target.value }) },
+        el('option', { value: '', texto: 'Nenhuma' }), Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: `${l.nome} (${l.plena}+${l.penumbra} m)`, selected: eu.luz === k })))) : null,
       el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),
         el('p', { class: 'dica', texto: celular
           ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'

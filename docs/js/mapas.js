@@ -1,6 +1,6 @@
 // mapas.js — importa mapas grandes, cria a versão leve para celular
 // e corta o mapa em pedaços para desenhar imagens maiores que a placa de vídeo aguenta.
-import { guardar, ler, hashDe } from './armazem.js?v=0.8';
+import { guardar, ler, hashDe } from './armazem.js?v=0.9';
 
 const LADO_CELULAR = 4096;      // maior lado da versão enviada ao celular
 const PIXELS_CELULAR = 16e6;    // e no máximo 16 milhões de pixels
