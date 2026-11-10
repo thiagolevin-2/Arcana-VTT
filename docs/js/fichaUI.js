@@ -1,9 +1,10 @@
 // fichaUI.js — as abas do personagem no painel: Personagem, Atributos, Combate e Habilidades.
 // Só monta a tela; quem chama decide o que cada botão faz (rolar, gastar um uso, mudar a vida).
-import { el, titulo } from './util.js?v=0.9';
-import { comSinal } from './dados.js?v=0.9';
-import { ATRIBUTOS, RECARGAS } from './fichas.js?v=0.9';
-import { textoMetros } from './tabuleiro.js?v=0.9';
+import { el, titulo } from './util.js?v=1.0';
+import { comSinal } from './dados.js?v=1.0';
+import { ATRIBUTOS, RECARGAS } from './fichas.js?v=1.0';
+import { textoMetros } from './tabuleiro.js?v=1.0';
+import { CONDICOES, EXAUSTAO } from './condicoes.js?v=1.0';
 
 export const ABAS_FICHA = [['personagem', 'Personagem'], ['atributos', 'Atributos'], ['combate', 'Combate'], ['habilidades', 'Habilidades']];
 
@@ -39,6 +40,8 @@ export function abaPersonagem(t, o = {}) {
     // a Iniciativa vira um botão: clicou, rolou
     el('div', { class: 'numeros' }, numeros.map(([r, v]) => r === 'Iniciativa' && o.aoIniciativa
       ? el('button', { class: 'num-botao' + (o.iniciativaPendente ? ' piscando' : ''), title: 'Rolar iniciativa', onclick: o.aoIniciativa }, el('small', { texto: 'Iniciativa 🎲' }), el('b', { texto: String(v) }))
+      : r === 'Visão no escuro' && o.aoVisao
+      ? el('button', { class: 'num-botao', title: 'Mudar a visão no escuro', onclick: o.aoVisao }, el('small', { texto: 'Visão no escuro ✎' }), el('b', { texto: String(v) }))
       : el('div', {}, el('small', { texto: r }), el('b', { texto: String(v) })))),
     Object.keys(t.outros || {}).length ? el('p', { class: 'dica', texto: 'Outros deslocamentos: ' + Object.entries(t.outros).map(([k, v]) => `${k} ${textoMetros(v)}`).join(' · ') }) : null,
     // usos de habilidades
@@ -131,4 +134,19 @@ export function abaHabilidades(t) {
   busca.addEventListener('input', desenhar);
   desenhar();
   return [busca, caixa];
+}
+
+// ---------- Condições (2024): botões que ligam e desligam, mais a exaustão ----------
+// o: { podeEditar, aoCondicao(id, ligar), aoExaustao(n) }
+export function blocoCondicoes(t, o = {}) {
+  const ativas = new Set(t.condicoes || []), ex = t.exaustao || 0;
+  return el('details', { class: 'bloco condicoes', open: ativas.size > 0 || ex > 0 },
+    el('summary', { texto: 'Condições' + (ativas.size || ex ? ` (${ativas.size + (ex ? 1 : 0)})` : '') }),
+    el('div', { class: 'chips' }, CONDICOES.map(c => el('button', { type: 'button', class: 'chip-cond' + (ativas.has(c.id) ? ' ligada' : ''), title: c.texto,
+      'aria-pressed': String(ativas.has(c.id)), disabled: !o.podeEditar, onclick: () => o.aoCondicao(c.id, !ativas.has(c.id)) },
+      el('span', { 'aria-hidden': 'true', texto: c.icone }), c.nome))),
+    el('label', { class: 'linha-campos meio', title: EXAUSTAO }, el('span', { class: 'rotulo', texto: 'Exaustão 😩' }),
+      el('select', { disabled: !o.podeEditar, onchange: e => o.aoExaustao(Number(e.target.value)) },
+        [0, 1, 2, 3, 4, 5, 6].map(n => el('option', { value: n, texto: n ? `Nível ${n} (−${n * 2} nos d20)` : 'Nenhuma', selected: ex === n })))),
+    ativas.size ? el('div', { class: 'dica' }, [...ativas].map(id => { const c = CONDICOES.find(x => x.id === id); return c ? el('p', {}, el('strong', { texto: c.icone + ' ' + c.nome + ': ' }), c.texto) : null; })) : null);
 }

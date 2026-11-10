@@ -94,7 +94,8 @@ export function limparFicha(raw) {
 
 // Monstro do livro (versão enxuta de dados/monstros.json) ou da Área do Mestre.
 export function acoesDoMonstro(m) {
-  const lista = m.ac || [
+  // no livro (versão enxuta) "ac" é a lista de ações; na Área do Mestre "ac" é a CA (número)
+  const lista = Array.isArray(m.ac) ? m.ac : [
     ...(m.actions || []).map(a => ({ ...a, g: 'Ações' })), ...(m.bonusActions || []).map(a => ({ ...a, g: 'Ações bônus' })),
     ...(m.reactions || []).map(a => ({ ...a, g: 'Reações' })), ...(m.legendaryActions || []).map(a => ({ ...a, g: 'Lendárias' })),
   ].map(a => ({ n: a.name, k: a.kind, b: a.attackBonus, f: a.formula, t: a.damageType, cd: a.dc, s: a.saveAbility, d: a.description, g: a.g,
@@ -111,11 +112,11 @@ export function tokenDoMonstro(m) {
   const { desloc, outros } = lerDeslocamento(m.desl ?? m.speed);
   return {
     nome: texto(m.n ?? m.name, 40), tipo: 'npc', cor: '#8c3b3b', tam: quadradosDoTamanho(m.tam ?? m.size),
-    pv: num(m.pv ?? m.hp, 0, 99999, 1), pvMax: num(m.pv ?? m.hp, 0, 99999, 1), ca: num(m.ca ?? m.ac, 0, 40, 10),
+    pv: num(m.pv ?? m.hp, 0, 99999, 1), pvMax: num(m.pv ?? m.hp, 0, 99999, 1), ca: num(m.ca ?? (Array.isArray(m.ac) ? null : m.ac), 0, 40, 10),
     ini: num(m.ini ?? m.initiative ?? mod(ab.dex), -10, 30), desloc, outros, visao: lerVisao(m.sen ?? m.senses),
     ficha: { atributos: Object.fromEntries(ATRIBUTOS.map(([k]) => [k, mod(ab[k])])), valores: Object.fromEntries(ATRIBUTOS.map(([k]) => [k, num(ab[k], 1, 30, 10)])),
       acoes: acoesDoMonstro(m), nd: texto(m.nd ?? m.cr, 8),
-      habilidades: (m.ac || []).filter(a => a.d).map(a => ({ grupo: a.g || 'Ações', nome: texto(a.n, 80), origem: '', texto: texto(a.d, 3000) })) },
+      habilidades: (Array.isArray(m.ac) ? m.ac : []).filter(a => a.d).map(a => ({ grupo: a.g || 'Ações', nome: texto(a.n, 80), origem: '', texto: texto(a.d, 3000) })) },
   };
 }
 

@@ -81,17 +81,17 @@ export const LUZES = {
 
 // ---------- tudo o que a tela precisa para desenhar a visão ----------
 // cfg = { ambiente: 'dia'|'penumbra'|'escuro', observadores: [{x, y, escuro (px)}], luzes: [{x, y, plena (px), penumbra (px)}],
-//         paredes, alcance (px) }
+//         paredes, alcance (px), escuridoes: [{x, y, r (px)}] (escuridão mágica: nem a visão no escuro atravessa) }
 // Guarda o resultado enquanto nada muda (calcular a cada quadro seria pesado).
 let memo = { chave: '', valor: null };
 export function calcularVisao(cfg) {
-  const chave = JSON.stringify([cfg.ambiente, cfg.observadores, cfg.luzes, cfg.paredes?.map(w => [w.a.x, w.a.y, w.b.x, w.b.y, w.tipo, !!w.aberta]), cfg.alcance]);
+  const chave = JSON.stringify([cfg.ambiente, cfg.observadores, cfg.luzes, cfg.paredes?.map(w => [w.a.x, w.a.y, w.b.x, w.b.y, w.tipo, !!w.aberta]), cfg.alcance, cfg.escuridoes]);
   if (memo.chave === chave) return memo.valor;
   const seg = segmentosBloqueando(cfg.paredes);
   const linhas = cfg.observadores.map(o => ({ ...o, poli: poligonoDeVisao(o, seg, cfg.alcance) }));
   const luzes = cfg.luzes.map(l => ({ ...l, poli: poligonoDeVisao(l, seg, (l.plena + l.penumbra) || 1) }));
   const valor = {
-    ambiente: cfg.ambiente, observadores: linhas, luzes,
+    ambiente: cfg.ambiente, observadores: linhas, luzes, escuridoes: cfg.escuridoes || [],
     caminhoVisao: (() => { const c = new Path2D(); for (const o of linhas) c.addPath(caminhoDoPoligono(o.poli)); return c; })(),
   };
   memo = { chave, valor };
@@ -103,6 +103,8 @@ export function comoVe(p, v) {
   let naLinha = null;
   for (const o of v.observadores) if (pontoNoPoligono(p, o.poli)) { naLinha = o; break; }
   if (!naLinha) return null;
+  // escuridão mágica: ninguém enxerga dentro dela, nem com visão no escuro, e luz comum não ilumina
+  for (const e of v.escuridoes || []) if (Math.hypot(p.x - e.x, p.y - e.y) <= e.r) return null;
   if (v.ambiente === 'dia') return 'claro';
   let luz = null;
   for (const l of v.luzes) {
@@ -113,4 +115,15 @@ export function comoVe(p, v) {
   if (v.ambiente === 'penumbra') return 'penumbra';
   for (const o of v.observadores) if (o.escuro > 0 && Math.hypot(p.x - o.x, p.y - o.y) <= o.escuro && pontoNoPoligono(p, o.poli)) return 'escuro-visao';
   return null;
+}
+
+// Uma parede curva vira vários pedaços retos: tira os pontos muito próximos e os que estão quase em linha.
+export function simplificarCurva(pontos, passo) {
+  if (pontos.length < 2) return pontos;
+  const r = [pontos[0]];
+  for (const p of pontos.slice(1, -1)) if (Math.hypot(p.x - r[r.length - 1].x, p.y - r[r.length - 1].y) >= passo) r.push(p);
+  const ult = pontos[pontos.length - 1];
+  if (Math.hypot(ult.x - r[r.length - 1].x, ult.y - r[r.length - 1].y) >= passo / 3 || r.length === 1) r.push(ult);
+  else r[r.length - 1] = ult;
+  return r;
 }

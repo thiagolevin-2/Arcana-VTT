@@ -434,3 +434,17 @@ details.bloco summary{cursor:pointer;color:var(--ouro);font-size:13px;text-trans
 .opcoes-nevoa select{min-height:34px}
 .tamanho-pincel{display:flex;align-items:center;gap:6px}.tamanho-pincel span{min-width:76px;text-align:center;font-size:13px}
 .opcoes-nevoa .dica{margin:0;font-size:12px}
+
+/* ---- 1.0: condições, desenho e moldes ---- */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip-cond{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:3px 9px;border-radius:999px;border:1px solid var(--linha);background:#16211b;color:var(--tinta);font-size:12.5px;cursor:pointer}
+.chip-cond:hover:not([disabled]){border-color:var(--ouro)}
+.chip-cond.ligada{background:#3a2420;border-color:#e0775f;color:#ffd9d4}
+.chip-cond[disabled]{cursor:default}
+.condicoes summary{cursor:pointer;font-weight:600}
+.condicoes .dica p{margin:4px 0}
+.campo-mini{display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap}
+.campo-mini input{width:72px;min-height:34px}
+.nome-molde{width:150px;min-height:34px}
+.opcoes-nevoa input[type=color]{width:38px;height:34px;padding:2px}
+.opcoes-nevoa .segmentos button{white-space:nowrap}

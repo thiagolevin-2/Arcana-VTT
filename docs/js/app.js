@@ -1,18 +1,22 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.9';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.9';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.9';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.9';
-import { LUZES } from './visao.js?v=0.9';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.9';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.9';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.9';
-import { comSinal } from './dados.js?v=0.9';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.9';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=1.0';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=1.0';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=1.0';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=1.0';
+import { LUZES, calcularVisao, comoVe } from './visao.js?v=1.0';
+import { atingidos, limparMolde, FORMAS } from './moldes.js?v=1.0';
+import { CONDICOES, CONDICAO, EXAUSTAO, limparCondicoes } from './condicoes.js?v=1.0';
+import { rolar, rolarD20 } from './dados.js?v=1.0';
+import { ATRIBUTOS } from './fichas.js?v=1.0';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=1.0';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=1.0';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades, blocoCondicoes } from './fichaUI.js?v=1.0';
+import { comSinal } from './dados.js?v=1.0';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=1.0';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.9';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=1.0';
 
-const VERSAO = '0.9';
+const VERSAO = '1.0';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -118,7 +122,9 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     laser: 'Bolinha com rastro: segure o botão e mexa o mouse. Todos veem o caminho.',
     grade: 'Ajustar grade: arraste por cima de UM quadrado desenhado no mapa, de canto a canto.',
     nevoa: 'Névoa: arraste para revelar ou esconder. As opções ficam na barra de cima.',
-    paredes: 'Paredes: clique ponto a ponto (a grade puxa para os cantos). Duplo clique termina. Na ferramenta Mover: clique abre/fecha a porta, duplo clique tranca.',
+    paredes: 'Paredes: clique ponto a ponto, em qualquer lugar (Ctrl puxa para a grade). Duplo clique termina. "Curva": arraste à mão livre. Na ferramenta Mover: clique abre/fecha a porta, duplo clique tranca.',
+    desenho: 'Desenho: arraste para desenhar no mapa. Todos veem. A borracha apaga um traço seu.',
+    molde: 'Molde de magia: escolha a forma e o tamanho na barra de cima. Clique na origem e arraste para apontar. Os atingidos ficam com um anel vermelho.',
     terreno: 'Terreno difícil: clique ou arraste para pintar. Comece num quadrado já pintado para apagar. Custa o dobro para andar.',
   };
   const escolher = f => {
@@ -126,6 +132,8 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     document.querySelectorAll('[data-ferramenta]').forEach(b => b.classList.toggle('ativo', b.dataset.ferramenta === f));
     $('#tela').style.cursor = f === 'mover' ? 'grab' : 'crosshair';
     const d = $('#dica-ferramenta'); d.hidden = !dicas[f]; d.textContent = dicas[f] || '';
+    $('#opcoes-desenho').hidden = f !== 'desenho'; if (f === 'desenho') desenharOpcoesDesenho();
+    $('#opcoes-molde').hidden = f !== 'molde'; if (f === 'molde') desenharOpcoesMolde();
     eventos.aoFerramenta?.(f);
   };
   document.querySelectorAll('[data-ferramenta]').forEach(b => b.addEventListener('click', () => escolher(b.dataset.ferramenta)));
@@ -139,8 +147,9 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     const k = e.key.toLowerCase();
     if (k === 'escape' && !$('#vitrine').hidden) { fecharVitrine(true); return; }
     if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping'); else if (k === 'l') escolher('laser');
-    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'n' && papel === 'mestre') escolher('nevoa'); else if (k === 'w' && papel === 'mestre') escolher('paredes'); else if (k === 'f') tab.enquadrar();
+    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'n' && papel === 'mestre') escolher('nevoa'); else if (k === 'w' && papel === 'mestre') escolher('paredes'); else if (k === 'd') escolher('desenho'); else if (k === 'm') escolher('molde'); else if (k === 'f') tab.enquadrar();
     else if (k === 'escape') { if (tab.ferramenta === 'paredes' && tab.cadeia) tab.terminarParede(); else escolher('mover'); }
+    else if ((k === 'delete' || k === 'backspace') && tab.ferramenta === 'molde') { apagarMoldes(false); }
     else eventos.aoTecla?.(e);
   });
   $('#btn-painel').addEventListener('click', () => {
@@ -166,13 +175,45 @@ function luzesDaCena(cena) {
     ...cena.tokens.filter(t => t.luz && LUZES[t.luz]).map(t => ({ ...centroDoToken(cena, t), plena: px(LUZES[t.luz].plena), penumbra: px(LUZES[t.luz].penumbra) })),
   ];
 }
+// escuridão mágica (magia Escuridão: esfera de 4,5 m): nem a visão no escuro atravessa
+const escuridoesDaCena = cena => (cena?.escuridoes || []).map(e => ({ x: e.x, y: e.y, r: metrosParaPx(cena, e.raio) }));
 function configDaVisao(cena, observadores) {
   if (!cena?.visao?.ativa) return null;
   return {
     ambiente: cena.visao.ambiente || 'escuro',
     observadores: observadores.map(t => ({ ...centroDoToken(cena, t), escuro: metrosParaPx(cena, t.visao || 0) })),
-    luzes: luzesDaCena(cena), paredes: cena.paredes || [], alcance: cena.grade.tam * 120,
+    luzes: luzesDaCena(cena), paredes: cena.paredes || [], alcance: cena.grade.tam * 120, escuridoes: escuridoesDaCena(cena),
   };
+}
+
+// ---------- névoa que some ao explorar ----------
+// Com "Some ao explorar" ligado, cada personagem revela os quadrados que enxerga: com a visão dinâmica,
+// o que ele vê de verdade (luz, escuro, paredes); sem ela, tudo na linha de visão até o alcance escolhido.
+function revelarAoExplorar(cena, tokens = cena?.tokens.filter(t => t.tipo === 'pc')) {
+  const n = cena?.nevoa;
+  if (!n?.ativa || !n.auto || !tokens?.length) return false;
+  const q = cena.grade, dinamica = !!cena.visao?.ativa;
+  const alcance = dinamica ? q.tam * 40 : metrosParaPx(cena, n.raioAuto || 12);
+  const set = new Set(n.reveladas), antes = set.size;
+  for (const t of tokens) {
+    const o = { ...centroDoToken(cena, t), escuro: metrosParaPx(cena, t.visao || 0) };
+    const v = calcularVisao({ ambiente: dinamica ? cena.visao.ambiente || 'escuro' : 'dia', observadores: [o], luzes: dinamica ? luzesDaCena(cena) : [],
+      paredes: cena.paredes || [], alcance, escuridoes: escuridoesDaCena(cena) });
+    const r = Math.ceil(alcance / q.tam), c0 = { x: Math.floor((o.x - q.ox) / q.tam), y: Math.floor((o.y - q.oy) / q.tam) };
+    for (let cx = c0.x - r; cx <= c0.x + r; cx++) for (let cy = c0.y - r; cy <= c0.y + r; cy++) {
+      const k = cx + ',' + cy;
+      if (set.has(k)) continue;
+      const centro = { x: q.ox + (cx + 0.5) * q.tam, y: q.oy + (cy + 0.5) * q.tam };
+      if (!dinamica && Math.hypot(centro.x - o.x, centro.y - o.y) > alcance) continue;
+      if (comoVe(centro, v)) set.add(k);
+    }
+    // o próprio quadrado sempre
+    const n2 = celulasDe(t.tam); for (let i = 0; i < n2; i++) for (let j = 0; j < n2; j++) set.add((t.x + i) + ',' + (t.y + j));
+  }
+  if (set.size === antes) return false;
+  n.reveladas = [...set]; salvar(); tab?.redesenhar();
+  if (cena.id === M.ativa) enviarCena();
+  return true;
 }
 
 // galeria: tokens que o mestre subiu ({ id, nome, img, dono }); bloqueados: jogadores expulsos
@@ -187,7 +228,7 @@ function novaCena(nome) {
     tokens: [], imagens: [],
   };
 }
-function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; c.paredes ||= []; c.luzes ||= []; c.visao ||= { ativa: false, ambiente: 'escuro' }; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
+function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; c.paredes ||= []; c.luzes ||= []; c.visao ||= { ativa: false, ambiente: 'escuro' }; c.escuridoes ||= []; c.desenhos ||= []; c.moldes ||= []; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
 const cenaAberta = () => M.cenas.find(c => c.id === M.aberta) || M.cenas[0];
 const cenaAtiva = () => M.cenas.find(c => c.id === M.ativa) || null;
 const salvar = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => guardar('dados', 'mestre', M).catch(e => avisar('Não consegui salvar: ' + e.message, true)), 300); };
@@ -199,7 +240,7 @@ const hashesUsados = () => new Set(M.cenas.flatMap(c => [
 
 // O que um jogador pode ver de uma cena: sem tokens/imagens escondidos, monstros sem PV exato.
 function tokenParaJogador(t) {
-  const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img, luz: t.luz || '' };
+  const c = { id: t.id, nome: t.nome, tipo: t.tipo, cor: t.cor, tam: t.tam, x: t.x, y: t.y, dono: t.dono, img: t.img, luz: t.luz || '', condicoes: t.condicoes || [], exaustao: t.exaustao || 0 };
   if (t.tipo === 'pc') {
     // personagens: números e ações vão para todos (a CA dos monstros continua secreta)
     Object.assign(c, { pv: t.pv, pvMax: t.pvMax, pvTemp: t.pvTemp || 0, recursos: t.recursos || [], ca: t.ca, desloc: t.desloc, outros: t.outros, visao: t.visao, ini: t.ini, ficha: t.ficha || null });
@@ -231,6 +272,9 @@ function cenaParaJogador(cena, j) {
     visao: cena.visao?.ativa ? { ativa: true, ambiente: cena.visao.ambiente } : { ativa: false },
     paredes: cena.visao?.ativa ? cena.paredes.map(w => ({ id: w.id, a: w.a, b: w.b, tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
     luzes: cena.visao?.ativa ? cena.luzes : [],
+    escuridoes: cena.escuridoes || [],
+    desenhos: cena.desenhos || [],
+    moldes: cena.moldes || [],
     imagens: (cena.imagens || []).filter(i => !i.oculto).map(i => ({
       id: i.id, hash: j.celular ? i.leve : i.hash, w: i.w, h: i.h, x: i.x, y: i.y, largura: i.largura, rot: i.rot, camada: i.camada,
     })),
@@ -469,6 +513,7 @@ async function iniciarMestre() {
         else sala?.paraTodos({ t: 'mov', id: t.id, x, y });
       }
       registrarMovimento(cenaAberta(), t, x0, y0);
+      if (t.tipo === 'pc') revelarAoExplorar(cenaAberta(), [t]);
     },
     extraDoToken: t => {
       const extra = M.combate?.cenaId === cenaAberta().id ? extraDoToken(t, M.combate, true) : null;
@@ -497,13 +542,27 @@ async function iniciarMestre() {
     ehMeu: t => t.id === verComo,
     luzesParaDesenhar: () => (cenaAberta().visao?.ativa ? luzesDaCena(cenaAberta()) : (cenaAberta().luzes || []).length ? luzesDaCena(cenaAberta()) : []),
     aoNovaParede: (a, b, tipo) => { const c = cenaAberta(); c.paredes.push({ id: uid(), a, b, tipo, aberta: false, trancada: false }); salvar(); tab.redesenhar(); enviarParedes(c); },
+    // parede curva: vários pedaços retos com o mesmo "grupo" (Apagar tira a curva inteira)
+    aoNovaCurva: pontos => {
+      const c = cenaAberta(), grupo = uid();
+      for (let i = 1; i < pontos.length; i++) c.paredes.push({ id: uid(), a: pontos[i - 1], b: pontos[i], tipo: 'parede', grupo, aberta: false, trancada: false });
+      salvar(); tab.redesenhar(); enviarParedes(c);
+    },
+    escuridoesParaDesenhar: () => escuridoesDaCena(cenaAberta()),
+    aoNovaEscuridao: (x, y) => { const c = cenaAberta(); c.escuridoes.push({ id: uid(), x, y, raio: tab.paredes.escuridao }); salvar(); tab.redesenhar(); enviarCena(); avisar('Escuridão mágica colocada: nem a visão no escuro enxerga dentro dela.'); },
+    aoDesenho: d => { const c = cenaAberta(); const n = { ...d, id: uid(), dono: 'mestre' }; c.desenhos.push(n); salvar(); tab.redesenhar(); mudouLista(c, 'desenhos', n); },
+    aoApagarDesenho: d => { const c = cenaAberta(); c.desenhos = c.desenhos.filter(x => x !== d); salvar(); tab.redesenhar(); mudouLista(c, 'desenhos', null, [d.id]); },
+    aoMolde: m => { const c = cenaAberta(), n = { ...m, id: uid(), dono: 'mestre', cor: '#d3bb7c' }; c.moldes.push(n); if (c.moldes.length > 60) c.moldes.shift(); salvar(); tab.redesenhar(); mudouLista(c, 'moldes', n); desenharOpcoesMolde(); },
+    aoAvisoMolde: texto => avisar(texto),
     aoNovaLuz: (x, y) => { const c = cenaAberta(); c.luzes.push({ id: uid(), x, y, tipo: luzEscolhida }); salvar(); tab.redesenhar(); enviarParedes(c); },
     aoApagar: (tipo, id) => {
       const c = cenaAberta();
-      if (tipo === 'luz') c.luzes = c.luzes.filter(l => l.id !== id); else c.paredes = c.paredes.filter(w => w.id !== id);
+      if (tipo === 'luz') c.luzes = c.luzes.filter(l => l.id !== id);
+      else if (tipo === 'escuridao') { c.escuridoes = c.escuridoes.filter(e => e.id !== id); salvar(); tab.redesenhar(); enviarCena(); return; }
+      else { const w = c.paredes.find(x => x.id === id); c.paredes = c.paredes.filter(x => x.id !== id && !(w?.grupo && x.grupo === w.grupo)); }
       salvar(); tab.redesenhar(); enviarParedes(c);
     },
-    aoPorta: w => { w.aberta = !w.aberta; salvar(); tab.redesenhar(); enviarParedes(cenaAberta()); },
+    aoPorta: w => { w.aberta = !w.aberta; salvar(); tab.redesenhar(); enviarParedes(cenaAberta()); revelarAoExplorar(cenaAberta()); },
     // duplo clique: tranca/destranca (os dois cliques simples abrem e fecham, então a porta volta como estava)
     aoTrancar: w => { w.trancada = !w.trancada; salvar(); tab.redesenhar(); enviarParedes(cenaAberta()); avisar(w.trancada ? 'Porta trancada: os jogadores não abrem.' : 'Porta destrancada.'); },
     aoSelecionar: t => { if (t) abaMestre = 'tokens'; desenharPainelMestre(); },
@@ -595,6 +654,7 @@ function tratarMensagemDoJogador(j, msg) {
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     sala.paraTodos({ t: 'mov', id: t.id, x: t.x, y: t.y });
     registrarMovimento(c, t, x0, y0);
+    revelarAoExplorar(c, [t]);
   } else if (msg.t === 'ficha' && c) {
     // o jogador carregou a ficha exportada: atualiza (ou cria) o token dele
     let f;
@@ -607,6 +667,7 @@ function tratarMensagemDoJogador(j, msg) {
       c.tokens.push(t);
     }
     aplicarFichaNoToken(t, f);
+    revelarAoExplorar(c, [t]);
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens', 'combate');
     avisar(`${j.nome} carregou a ficha de ${f.nome}.`);
@@ -614,7 +675,23 @@ function tratarMensagemDoJogador(j, msg) {
     const w = c.paredes.find(x => x.id === msg.id && x.tipo === 'porta');
     if (!w) return;
     if (w.trancada) { sala.enviar(j, { t: 'erro', texto: 'A porta está trancada.' }); return; }
-    w.aberta = !w.aberta; salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); enviarCena();
+    w.aberta = !w.aberta; salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); enviarCena(); revelarAoExplorar(c);
+  } else if (msg.t === 'desenho' && c) {
+    const d = limparDesenho(msg.d); if (!d) return;
+    if (c.desenhos.filter(x => x.dono === j.id).length >= 300) { sala.enviar(j, { t: 'erro', texto: 'Você já tem desenhos demais nesta cena. Apague alguns.' }); return; }
+    d.dono = j.id; c.desenhos.push(d); salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); mudouLista(c, 'desenhos', d);
+  } else if (msg.t === 'apagar-desenho' && c) {
+    const d = c.desenhos.find(x => x.id === msg.id && x.dono === j.id); if (!d) return;
+    c.desenhos = c.desenhos.filter(x => x !== d); salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); mudouLista(c, 'desenhos', null, [d.id]);
+  } else if (msg.t === 'molde' && c) {
+    const m = limparMolde(msg.m); if (!m) return;
+    m.id = /^[\w-]{8,64}$/.test(m.id) ? m.id : uid(); m.dono = j.id; m.cor = j.cor;
+    c.moldes = c.moldes.filter(x => x.id !== m.id); c.moldes.push(m); if (c.moldes.length > 60) c.moldes.shift();
+    salvar(); if (cenaAberta().id === c.id) { tab.redesenhar(); if (tab.ferramenta === 'molde') desenharOpcoesMolde(); } mudouLista(c, 'moldes', m);
+  } else if (msg.t === 'apagar-moldes' && c) {
+    const meus = c.moldes.filter(x => x.dono === j.id), fora = msg.todos ? meus : meus.slice(-1);
+    if (!fora.length) return;
+    c.moldes = c.moldes.filter(x => !fora.includes(x)); salvar(); if (cenaAberta().id === c.id) tab.redesenhar(); mudouLista(c, 'moldes', null, fora.map(x => x.id));
   } else if (msg.t === 'galeria-escolher') {
     escolhaDaGaleria(j, msg.id ? String(msg.id).slice(0, 64) : null);
   } else if (msg.t === 'meu-token' && c) {
@@ -635,10 +712,21 @@ function tratarMensagemDoJogador(j, msg) {
     } else if (msg.acao === 'luz') {
       t.luz = LUZES[msg.luz] ? msg.luz : '';
       linha = { rotulo: 'Luz', total: t.luz ? LUZES[t.luz].nome : 'apagada', detalhe: t.luz ? `${LUZES[t.luz].plena} m de luz plena + ${LUZES[t.luz].penumbra} m de penumbra` : '' };
+    } else if (msg.acao === 'visao') {
+      t.visao = numero(msg.valor, 0, 300, 0);
+      linha = { rotulo: 'Visão no escuro', total: t.visao ? textoMetros(t.visao) : 'nenhuma', detalhe: 'mudada pelo jogador' };
+    } else if (msg.acao === 'condicao') {
+      if (!CONDICAO[msg.cond]) return;
+      const set = new Set(t.condicoes || []); if (msg.ligar) set.add(msg.cond); else set.delete(msg.cond);
+      t.condicoes = [...set];
+      linha = { rotulo: msg.ligar ? 'Condição' : 'Saiu da condição', total: CONDICAO[msg.cond].icone, detalhe: CONDICAO[msg.cond].nome };
+    } else if (msg.acao === 'exaustao') {
+      t.exaustao = inteiro(msg.valor, 0, 6, 0);
+      linha = { rotulo: 'Exaustão', total: String(t.exaustao), detalhe: t.exaustao ? `nível ${t.exaustao}: −${t.exaustao * 2} nos d20, −${textoMetros(t.exaustao * 1.5)} de deslocamento` : 'sem exaustão' };
     } else if (msg.acao === 'descanso') {
       const longo = msg.tipo === 'longo';
       for (const r of t.recursos || []) { if (longo || r.recarga === 'short') r.usados = 0; else if (r.recarga === 'one') r.usados = Math.max(0, r.usados - 1); }
-      if (longo) { t.pv = t.pvMax || t.pv; t.pvTemp = 0; }
+      if (longo) { t.pv = t.pvMax || t.pv; t.pvTemp = 0; if (t.exaustao > 0) t.exaustao--; }
       linha = { rotulo: longo ? 'Descanso longo' : 'Descanso curto', total: '✓', detalhe: longo ? 'PV e usos recuperados' : 'usos de descanso curto recuperados' };
     } else return;
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
@@ -668,6 +756,7 @@ function tratarMensagemDoJogador(j, msg) {
     if (M.fichas[j.id] && !c.tokens.some(x => x.dono === j.id)) aplicarFichaNoToken(t, M.fichas[j.id]);
     const escolhido = M.galeria.find(g => g.dono === j.id); if (escolhido) t.img = escolhido.img;
     c.tokens.push(t);
+    revelarAoExplorar(c, [t]);
     salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
     enviarToken(c, t); atualizarSeAba('tokens');
     avisar(`${j.nome} colocou o token "${t.nome}".`);
@@ -773,7 +862,9 @@ function painelCenas() {
         const s = novaCena(nome.slice(0, 60)); M.cenas.push(s); M.aberta = s.id; salvar(); await abrirCenaNoTabuleiro(); desenharPainelMestre();
       } })),
       lista),
-    el('button', { class: 'btn', texto: '+ Monstro do livro nesta cena', onclick: abrirListaMonstros }),
+    el('div', { class: 'linha-campos' },
+      el('button', { class: 'btn cresce', texto: '+ Monstro do livro nesta cena', onclick: abrirListaMonstros }),
+      el('button', { class: 'btn pequeno', texto: 'Importar monstros', title: 'Monstros personalizados: backup da Área do Mestre (Ficha Arcana) ou JSON de monstro', onclick: () => importarMonstros(() => abrirListaMonstros()) })),
     el('button', { class: 'btn pequeno', texto: 'Pré-carregar todas as cenas nos jogadores', title: 'Manda os mapas e imagens agora, antes do jogo, para as cenas abrirem na hora.', disabled: !sala?.jogadores.size, onclick: preCarregar }),
   ];
 }
@@ -795,6 +886,7 @@ function levarJogadores(c) {
     }
   }
   M.ativa = c.id; salvar();
+  revelarAoExplorar(c);
   tab.redesenhar(); enviarCena(); enviarCombate(); desenharPainelMestre();
   avisar(`Jogadores levados para ${c.nome}${i ? ` com ${i} token(s)` : ''}.`);
 }
@@ -848,6 +940,7 @@ function painelTokens() {
   const form = el('div', { class: 'bloco' },
     titulo(t ? 'Editar: ' + t.nome : 'Novo token', el('div', { class: 'acoes' },
       el('button', { class: 'btn pequeno', texto: '+ Monstro do livro', onclick: abrirListaMonstros }),
+      el('button', { class: 'btn pequeno', texto: 'Importar monstros', title: 'Monstros personalizados: backup da Área do Mestre (Ficha Arcana) ou JSON de monstro', onclick: () => importarMonstros(() => abrirListaMonstros()) }),
       t ? el('button', { class: 'btn pequeno', texto: '+ Novo', onclick: () => { tab.selecionado = null; tab.redesenhar(); desenharPainelMestre(); } }) : null)),
     el('label', {}, 'Nome', campo('nome', { maxlength: 40 })),
     el('div', { class: 'linha-campos meio' }, el('span', { class: 'rotulo', texto: 'Cor' }),
@@ -867,6 +960,9 @@ function painelTokens() {
       el('label', { class: 'cresce' }, 'Luz', el('select', { onchange: e => { rascunho.luz = e.target.value; if (t) aplicar(); } },
         el('option', { value: '', texto: 'Nenhuma' }), Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: l.nome, selected: rascunho.luz === k })))),
       el('label', { class: 'curto' }, 'Escuro m', campo('visao', { type: 'number', min: 0, step: 1.5, inputmode: 'decimal', title: 'Visão no escuro em metros' }))),
+    t ? blocoCondicoes(t, { podeEditar: true,
+      aoCondicao: (k, ligar) => { const set = new Set(t.condicoes || []); if (ligar) set.add(k); else set.delete(k); t.condicoes = [...set]; salvar(); tab.redesenhar(); enviarToken(c, t); desenharPainelMestre(); },
+      aoExaustao: n => { t.exaustao = n; salvar(); tab.redesenhar(); enviarToken(c, t); desenharPainelMestre(); } }) : null,
     t ? el('div', { class: 'linha-campos' }, el('div', { class: 'curto' }, ajustePV),
       el('button', { class: 'btn pequeno perigo cresce', texto: '− Dano', onclick: () => mudarPV(-1) }),
       el('button', { class: 'btn pequeno cresce', texto: '+ Cura', onclick: () => mudarPV(1) })) : null,
@@ -1005,6 +1101,116 @@ async function mostrarATodos(im) {
   for (const j of sala.jogadores.values()) sala.enviar(j, { t: 'mostrar', hash: j.celular ? im.leve : im.hash, nome: im.nome });
 }
 
+// ---------- desenhos e moldes: mudanças pequenas vão sozinhas, sem mandar a cena inteira ----------
+function mudouLista(c, lista, item, ids) {
+  if (!sala || c.id !== M.ativa) return;
+  if (item) sala.paraTodos({ t: 'item', lista, item });
+  if (ids?.length) sala.paraTodos({ t: 'item-fora', lista, ids });
+}
+function limparDesenho(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.pontos)) return null;
+  const pontos = d.pontos.slice(0, 8000).filter(Number.isFinite);
+  if (pontos.length < 2 || pontos.length % 2 || pontos.some(v => Math.abs(v) > 1e7)) return null;
+  return { id: /^[\w-]{8,64}$/.test(d.id || '') ? d.id : uid(), dono: String(d.dono || '').slice(0, 64), cor: corValida(d.cor) || '#d3bb7c', larg: numero(d.larg, 0.3, 500, 6), pontos };
+}
+// Apaga moldes: o último (ou todos) — o mestre apaga qualquer um; o jogador, os seus
+function apagarMoldes(todos) {
+  if (papel === 'mestre') {
+    const c = cenaAberta(); if (!c.moldes.length) return;
+    const fora = todos ? [...c.moldes] : [c.moldes[c.moldes.length - 1]];
+    c.moldes = c.moldes.filter(x => !fora.includes(x)); salvar(); tab.redesenhar(); mudouLista(c, 'moldes', null, fora.map(x => x.id));
+  } else {
+    if (!J.cena) return;
+    const meus = J.cena.moldes.filter(x => x.dono === J.eu.id), fora = todos ? meus : meus.slice(-1);
+    if (!fora.length) return;
+    J.cena.moldes = J.cena.moldes.filter(x => !fora.includes(x)); tab.redesenhar();
+    J.conexao.enviar({ t: 'apagar-moldes', todos: !!todos });
+  }
+  desenharOpcoesMolde();
+}
+function desenharOpcoesDesenho() {
+  const o = tab.desenho;
+  const seg = (lista, atual, mudar) => el('div', { class: 'segmentos' }, lista.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual === v), texto: n, onclick: () => { mudar(v); desenharOpcoesDesenho(); } })));
+  const meus = () => (papel === 'mestre' ? cenaAberta().desenhos : (J.cena?.desenhos || []).filter(d => d.dono === J.eu.id));
+  $('#opcoes-desenho').replaceChildren(...[
+    seg([['lapis', 'Lápis'], ['borracha', 'Borracha']], o.modo, v => { o.modo = v; }),
+    seg([['fina', 'Fina'], ['media', 'Média'], ['grossa', 'Grossa']], o.espessura, v => { o.espessura = v; }),
+    el('input', { type: 'color', value: o.cor || tab.corPropria, 'aria-label': 'Cor do desenho', title: 'Cor do desenho', oninput: e => { o.cor = e.target.value; } }),
+    el('button', { class: 'btn pequeno', texto: 'Desfazer', title: 'Apaga o seu último traço', onclick: () => { const d = meus().at(-1); if (d) apagarDesenho(d); } }),
+    el('button', { class: 'btn pequeno perigo', texto: papel === 'mestre' ? 'Apagar todos' : 'Apagar os meus', onclick: () => {
+      const lista = [...meus()]; if (!lista.length || !confirm(papel === 'mestre' ? 'Apagar todos os desenhos desta cena (de todos)?' : 'Apagar os seus desenhos?')) return;
+      for (const d of lista) apagarDesenho(d);
+    } }),
+  ]);
+}
+function apagarDesenho(d) {
+  if (papel === 'mestre') { const c = cenaAberta(); c.desenhos = c.desenhos.filter(x => x !== d); salvar(); tab.redesenhar(); mudouLista(c, 'desenhos', null, [d.id]); return; }
+  if (d.dono !== J.eu.id) { avisar('Esse traço não é seu: só o mestre apaga.'); return; }
+  J.cena.desenhos = J.cena.desenhos.filter(x => x !== d); tab.redesenhar(); J.conexao.enviar({ t: 'apagar-desenho', id: d.id });
+}
+function desenharOpcoesMolde() {
+  const o = tab.molde;
+  const formas = el('select', { 'aria-label': 'Forma', onchange: e => { o.forma = e.target.value; o.metros = FORMAS[o.forma].padrao; desenharOpcoesMolde(); } },
+    Object.entries(FORMAS).map(([k, f]) => el('option', { value: k, texto: f.nome, selected: o.forma === k })));
+  const tamanho = el('input', { type: 'number', min: 1.5, max: 300, step: 1.5, value: o.metros, inputmode: 'decimal', 'aria-label': 'Tamanho em metros', title: o.forma === 'esfera' || o.forma === 'emanacao' ? 'Raio em metros' : 'Comprimento em metros',
+    oninput: e => { const v = numero(e.target.value, 1.5, 300, 0); if (v) o.metros = v; } });
+  const c = papel === 'mestre' ? cenaAberta() : J.cena;
+  const meus = (c?.moldes || []).filter(m => papel === 'mestre' || m.dono === J.eu.id);
+  $('#opcoes-molde').replaceChildren(...[
+    formas,
+    el('label', { class: 'campo-mini' }, o.forma === 'esfera' || o.forma === 'emanacao' ? 'Raio' : o.forma === 'cubo' ? 'Lado' : 'Comprimento', tamanho, 'm'),
+    o.forma === 'linha' ? el('label', { class: 'campo-mini' }, 'Largura', el('input', { type: 'number', min: 1.5, max: 30, step: 1.5, value: o.largura || 1.5, inputmode: 'decimal', oninput: e => { o.largura = numero(e.target.value, 1.5, 30, 1.5); } }), 'm') : null,
+    el('input', { class: 'nome-molde', placeholder: 'Nome (opcional)', maxlength: 40, value: o.nome || '', 'aria-label': 'Nome da magia', oninput: e => { o.nome = e.target.value.slice(0, 40); } }),
+    papel === 'mestre' && meus.length ? el('button', { class: 'btn pequeno primario', texto: 'Atingidos ▸', title: 'Salvaguardas e dano para quem está no último molde', onclick: abrirAtingidos }) : null,
+    meus.length ? el('button', { class: 'btn pequeno', texto: 'Apagar o último', onclick: () => apagarMoldes(false) }) : null,
+    meus.length > 1 ? el('button', { class: 'btn pequeno perigo', texto: 'Apagar todos', onclick: () => apagarMoldes(true) }) : null,
+  ].filter(Boolean));
+}
+// Magia em área: salvaguarda de todos os atingidos e dano (metade para quem passou)
+function abrirAtingidos() {
+  const c = cenaAberta(), m = c.moldes[c.moldes.length - 1];
+  if (!m) { avisar('Coloque um molde primeiro.'); return; }
+  const alvos = atingidos(m, c.tokens, c.grade);
+  if (!alvos.length) { avisar('Ninguém está dentro do último molde.'); return; }
+  const atr = el('select', { 'aria-label': 'Salvaguarda' }, ATRIBUTOS.map(([k, , n]) => el('option', { value: k, texto: n, selected: k === 'dex' })));
+  const cd = el('input', { type: 'number', min: 1, max: 40, value: 15, inputmode: 'numeric', 'aria-label': 'CD' });
+  const dano = el('input', { placeholder: 'ex.: 8d6 ou 28', 'aria-label': 'Dano', autocomplete: 'off' });
+  const metade = el('input', { type: 'checkbox', checked: true });
+  const bonusDe = (t, k) => t.ficha?.salvaguardas?.[k]?.bonus ?? t.ficha?.atributos?.[k] ?? 0;
+  const linhas = alvos.map(t => ({ t, passou: el('input', { type: 'checkbox', 'aria-label': t.nome + ' passou' }), res: el('span', { class: 'etiqueta cinza', texto: '—' }) }));
+  const resultado = el('p', { class: 'dica' });
+  abrirModal(`Atingidos: ${m.nome || FORMAS[m.forma].nome} (${alvos.length})`, [
+    el('div', { class: 'linha-campos' }, el('label', { class: 'cresce' }, 'Salvaguarda de', atr), el('label', { class: 'curto' }, 'CD', cd)),
+    el('div', { class: 'lista' }, linhas.map(l => el('div', { class: 'item' },
+      el('span', { class: 'bola', style: `background:${l.t.cor}` }), el('span', { class: 'nome', texto: l.t.nome + (l.t.oculto ? ' (escondido)' : '') }),
+      l.t.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${l.t.pv}/${l.t.pvMax}` }) : null, l.res,
+      el('label', { class: 'marcar' }, l.passou, 'passou')))),
+    el('button', { class: 'btn', texto: 'Rolar a salvaguarda dos monstros', title: 'Os jogadores rolam a deles; você marca quem passou', onclick: () => {
+      for (const l of linhas) if (l.t.tipo !== 'pc') {
+        const b = bonusDe(l.t, atr.value), r = rolarD20('normal'), total = r.escolhido + b;
+        l.res.textContent = `${r.escolhido}${comSinal(b)} = ${total}`; l.passou.checked = total >= inteiro(cd.value, 1, 40, 15);
+      }
+    } }),
+    el('div', { class: 'linha-campos' }, el('label', { class: 'cresce' }, 'Dano', dano), el('label', { class: 'marcar' }, metade, 'Metade para quem passou')),
+    el('button', { class: 'btn primario', texto: 'Aplicar o dano', onclick: () => {
+      const txt = dano.value.trim(); if (!txt) { dano.focus(); return; }
+      let total;
+      try { total = /^\d+$/.test(txt) ? Number(txt) : rolar(txt).total; } catch (e) { avisar(e.message, true); return; }
+      const publico = [];
+      for (const l of linhas) {
+        const t = l.t, v = l.passou.checked ? (metade.checked ? Math.floor(total / 2) : 0) : total;
+        const absorvido = Math.min(t.pvTemp || 0, v); t.pvTemp = (t.pvTemp || 0) - absorvido; t.pv = (t.pv || 0) - Math.min(t.pv || 0, v - absorvido);
+        enviarToken(c, t);
+        if (!t.oculto) publico.push({ rotulo: t.nome, total: '−' + v, detalhe: l.passou.checked ? 'passou na salvaguarda' : 'falhou' });
+      }
+      salvar(); tab.redesenhar(); atualizarSeAba('tokens', 'combate');
+      postar({ quem: 'Mestre', cor: '#d3bb7c', titulo: `${m.nome || 'Magia em área'}: ${total} de dano`, linhas: publico.slice(0, 10) });
+      resultado.textContent = `Dano aplicado (${total}).`; fecharModal();
+    } }),
+    resultado,
+  ]);
+}
+
 // ---------- barra de opções das paredes, portas e luzes ----------
 let verComo = '', luzEscolhida = 'tocha';
 function enviarParedes(c) { if (c.id === M.ativa && c.visao?.ativa) enviarCena(); }
@@ -1015,14 +1221,17 @@ function desenharOpcoesParedes() {
     el('label', { class: 'marcar', title: 'Cada jogador vê só o que o personagem enxerga' }, el('input', { type: 'checkbox', checked: !!c.visao.ativa, onchange: e => { c.visao.ativa = e.target.checked; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesParedes(); } }), 'Visão dinâmica'),
     el('select', { 'aria-label': 'Luz do ambiente', title: 'Luz do ambiente', onchange: e => { c.visao.ambiente = e.target.value; salvar(); tab.redesenhar(); enviarParedes(c); } },
       [['dia', 'Dia (tudo iluminado)'], ['penumbra', 'Penumbra'], ['escuro', 'Escuridão']].map(([v, n]) => el('option', { value: v, texto: n, selected: c.visao.ambiente === v }))),
-    seg([['parede', 'Parede'], ['porta', 'Porta'], ['luz', 'Luz'], ['apagar', 'Apagar']], o.modo, v => { o.modo = v; tab.terminarParede?.(); }),
+    seg([['parede', 'Parede'], ['curva', 'Curva'], ['porta', 'Porta'], ['luz', 'Luz'], ['escuridao', 'Escuridão'], ['apagar', 'Apagar']], o.modo, v => { o.modo = v; tab.terminarParede?.(); }),
+    ['parede', 'curva', 'porta'].includes(o.modo) ? el('label', { class: 'marcar', title: 'Desligado: a parede vai onde você clicar. Segure Ctrl para inverter.' }, el('input', { type: 'checkbox', checked: !!o.grade, onchange: e => { o.grade = e.target.checked; } }), 'Encaixar na grade') : null,
+    o.modo === 'escuridao' ? el('select', { 'aria-label': 'Tamanho da escuridão', onchange: e => { o.escuridao = Number(e.target.value); tab.redesenhar(); } },
+      [[3, 'Raio 3 m'], [4.5, 'Raio 4,5 m (magia Escuridão)'], [6, 'Raio 6 m'], [9, 'Raio 9 m'], [18, 'Raio 18 m']].map(([v, n]) => el('option', { value: v, texto: n, selected: o.escuridao === v }))) : null,
     o.modo === 'luz' ? el('select', { 'aria-label': 'Tipo de luz', onchange: e => { luzEscolhida = e.target.value; } },
       Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: `${l.nome} (${l.plena}+${l.penumbra} m)`, selected: luzEscolhida === k }))) : null,
     el('select', { 'aria-label': 'Ver como', title: 'Ver o tabuleiro como um personagem enxerga', onchange: e => { verComo = e.target.value; tab.redesenhar(); } },
       el('option', { value: '', texto: 'Ver: tudo (mestre)' }),
       c.tokens.filter(t => t.tipo === 'pc' || t.visao).map(t => el('option', { value: t.id, texto: 'Ver como ' + t.nome, selected: verComo === t.id }))),
-    el('button', { class: 'btn pequeno perigo', texto: 'Apagar paredes', onclick: () => { if (!confirm('Apagar todas as paredes, portas e luzes desta cena?')) return; c.paredes = []; c.luzes = []; salvar(); tab.redesenhar(); enviarParedes(c); } }),
-    el('span', { class: 'dica', texto: o.modo === 'parede' ? 'Clique ponto a ponto; duplo clique termina.' : o.modo === 'porta' ? 'Arraste de um lado ao outro da porta.' : o.modo === 'luz' ? 'Clique onde fica a luz.' : 'Clique numa parede, porta ou luz.' }),
+    el('button', { class: 'btn pequeno perigo', texto: 'Apagar paredes', onclick: () => { if (!confirm('Apagar todas as paredes, portas, luzes e escuridões desta cena?')) return; c.paredes = []; c.luzes = []; c.escuridoes = []; salvar(); tab.redesenhar(); enviarCena(); } }),
+    el('span', { class: 'dica', texto: { parede: 'Clique ponto a ponto; duplo clique termina.', curva: 'Arraste à mão livre: vira uma parede curva.', porta: 'Arraste de um lado ao outro da porta.', luz: 'Clique onde fica a luz.', escuridao: 'Clique para pôr escuridão mágica: nem a visão no escuro enxerga dentro.', apagar: 'Clique numa parede, porta, luz ou escuridão.' }[o.modo] }),
   ].filter(Boolean));
 }
 
@@ -1036,6 +1245,10 @@ function desenharOpcoesNevoa() {
   const seg = (lista, atual, mudar) => el('div', { class: 'segmentos' }, lista.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual === v), texto: n, onclick: () => { mudar(v); desenharOpcoesNevoa(); } })));
   $('#opcoes-nevoa').replaceChildren(...[
     el('label', { class: 'marcar' }, el('input', { type: 'checkbox', checked: !!c.nevoa.ativa, onchange: e => ligarNevoa(c, e.target.checked) }), 'Névoa ligada'),
+    el('label', { class: 'marcar', title: 'A névoa some sozinha onde os personagens dos jogadores enxergam, conforme eles andam' },
+      el('input', { type: 'checkbox', checked: !!c.nevoa.auto, onchange: e => { c.nevoa.auto = e.target.checked; salvar(); if (c.nevoa.auto) { if (!c.nevoa.ativa) ligarNevoa(c, true); revelarAoExplorar(c); } desenharOpcoesNevoa(); } }), 'Some ao explorar'),
+    c.nevoa.auto && !c.visao?.ativa ? el('select', { 'aria-label': 'Até onde os personagens revelam', title: 'Sem a visão dinâmica: até onde cada personagem revela (paredes bloqueiam)', onchange: e => { c.nevoa.raioAuto = Number(e.target.value); salvar(); revelarAoExplorar(c); } },
+      [[6, 'até 6 m'], [9, 'até 9 m'], [12, 'até 12 m'], [18, 'até 18 m'], [24, 'até 24 m'], [36, 'até 36 m']].map(([v, n]) => el('option', { value: v, texto: n, selected: (c.nevoa.raioAuto || 12) === v }))) : null,
     seg([['revelar', 'Revelar'], ['esconder', 'Esconder']], o.acao, v => { o.acao = v; }),
     seg([['redondo', 'Redondo'], ['pincel', 'Quadrado'], ['retangulo', 'Retângulo']], o.forma, v => { o.forma = v; }),
     o.forma !== 'retangulo' ? el('div', { class: 'tamanho-pincel', title: 'Tamanho do pincel (teclas [ e ])' },
@@ -1121,6 +1334,34 @@ async function carregarLivro() {
   }
   return livroMonstros;
 }
+// Lê um arquivo de monstros personalizados e junta aos que o mestre já tem (mesmo nome = substitui).
+// Aceita: backup da Área do Mestre da Ficha Arcana (monstros e PdMs), uma lista de monstros ou um monstro só.
+async function importarMonstros(depois) {
+  const arq = await escolherArquivo('.json,application/json'); if (!arq) return;
+  try {
+    const raw = JSON.parse(await arq.text());
+    const imagens = raw?.images && typeof raw.images === 'object' ? raw.images : {};
+    let lista;
+    if (raw?.kind === 'arcana-dm') lista = [...(raw.custom || []), ...(raw.npcs || [])];
+    else if (Array.isArray(raw)) lista = raw;
+    else if (Array.isArray(raw?.monstros) || Array.isArray(raw?.monsters)) lista = raw.monstros || raw.monsters;
+    else if (raw && (raw.name || raw.n)) lista = [raw];
+    else throw new Error('Não achei monstros neste arquivo. Use o backup da Área do Mestre (Ficha Arcana) ou um JSON de monstro.');
+    const validos = lista.filter(m => m && typeof m === 'object' && (m.name || m.n)).slice(0, 1000).map(m => {
+      const img = imagemValida(m.img) || imagemValida(imagens[m.id]) || imagemValida(m.image) || null;
+      try { tokenDoMonstro(m); } catch { return null; }
+      return { ...m, img: img && img.length < 400000 ? img : null };
+    }).filter(Boolean);
+    if (!validos.length) throw new Error('Nenhum monstro válido neste arquivo.');
+    M.meusMonstros ||= [];
+    const nome = m => semAcento(m.n ?? m.name);
+    const novos = new Set(validos.map(nome));
+    M.meusMonstros = [...M.meusMonstros.filter(m => !novos.has(nome(m))), ...validos].slice(-2000);
+    salvar();
+    avisar(`${validos.length} monstro(s) personalizado(s) importado(s). Total: ${M.meusMonstros.length}.`);
+    depois?.();
+  } catch (e) { avisar(e.message.includes('JSON') ? 'Este arquivo não é um JSON válido.' : e.message, true); }
+}
 const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 async function abrirListaMonstros() {
   let livro;
@@ -1139,7 +1380,7 @@ async function abrirListaMonstros() {
       .slice(0, 60);
     resultados.replaceChildren(...achados.map(m => el('button', { class: 'item', onclick: () => {
       const c = cenaAberta(), base = tokenDoMonstro(m), centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
-      const n = { id: uid(), ...base, nome: c.tokens.some(t => t.nome === base.nome) ? proximoNome(c, base.nome) : base.nome, dono: '', oculto: escondido.checked, img: null,
+      const n = { id: uid(), ...base, nome: c.tokens.some(t => t.nome === base.nome) ? proximoNome(c, base.nome) : base.nome, dono: '', oculto: escondido.checked, img: m.img || null,
         x: cel.cx - Math.floor((celulasDe(base.tam) - 1) / 2), y: cel.cy - Math.floor((celulasDe(base.tam) - 1) / 2) };
       c.tokens.push(n); tab.selecionado = n.id; tab.imagemSelecionada = null;
       if (M.combate?.cenaId === c.id) M.combate.ordem.push({ id: n.id, ini: null });
@@ -1158,18 +1399,10 @@ async function abrirListaMonstros() {
     el('div', { class: 'linha-campos meio' },
       el('label', { class: 'marcar' }, escondido, 'Colocar escondido dos jogadores'),
       el('span', { class: 'espaco' }),
-      el('button', { class: 'btn pequeno', texto: 'Importar meus monstros', title: 'Backup JSON da Área do Mestre da Ficha Arcana', onclick: async () => {
-        const arq = await escolherArquivo('.json,application/json'); if (!arq) return;
-        try {
-          const raw = JSON.parse(await arq.text());
-          if (raw?.kind !== 'arcana-dm' || !Array.isArray(raw.custom)) throw new Error('Este arquivo não é um backup da Área do Mestre.');
-          const meus = raw.custom.filter(m => m && m.name).slice(0, 1000);
-          M.meusMonstros = meus; salvar();
-          avisar(`${meus.length} monstro(s) seus importados.`); mostrar();
-        } catch (e) { avisar(e.message, true); }
-      } })),
+      el('button', { class: 'btn pequeno primario', texto: 'Importar monstros personalizados', title: 'Backup da Área do Mestre (Ficha Arcana), uma lista de monstros ou um monstro em JSON', onclick: () => importarMonstros(mostrar) }),
+      M.meusMonstros.length ? el('button', { class: 'btn pequeno perigo', texto: `Apagar os meus (${M.meusMonstros.length})`, onclick: () => { if (!confirm('Apagar todos os seus monstros personalizados? Os tokens que já estão no mapa ficam.')) return; M.meusMonstros = []; salvar(); fecharModal(); abrirListaMonstros(); } }) : null),
     resultados,
-    el('p', { class: 'dica', texto: `${livro.length} monstros do Livro dos Monstros 2024. O token já vem com PV, CA, deslocamento, tamanho e ataques.` }),
+    el('p', { class: 'dica', texto: `${livro.length} monstros do Livro dos Monstros 2024${M.meusMonstros.length ? ` e ${M.meusMonstros.length} seus (marcados "meu")` : ''}. O token já vem com PV, CA, deslocamento, tamanho e ataques.` }),
   ]);
   mostrar(); busca.focus();
 }
@@ -1403,6 +1636,9 @@ function limparCenaRecebida(c) {
     dificil: Array.isArray(c.dificil) ? c.dificil.filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 20000) : [],
     visao: c.visao?.ativa ? { ativa: true, ambiente: ['dia', 'penumbra', 'escuro'].includes(c.visao.ambiente) ? c.visao.ambiente : 'escuro' } : { ativa: false },
     paredes: (Array.isArray(c.paredes) ? c.paredes : []).slice(0, 5000).map(limparParede).filter(Boolean),
+    escuridoes: (Array.isArray(c.escuridoes) ? c.escuridoes : []).slice(0, 100).map(e => (e && Number.isFinite(e.x) && Number.isFinite(e.y) ? { id: String(e.id).slice(0, 64), x: e.x, y: e.y, raio: numero(e.raio, 1.5, 60, 4.5) } : null)).filter(Boolean),
+    desenhos: (Array.isArray(c.desenhos) ? c.desenhos : []).slice(0, 2000).map(limparDesenho).filter(Boolean),
+    moldes: (Array.isArray(c.moldes) ? c.moldes : []).slice(0, 100).map(limparMolde).filter(Boolean),
     luzes: (Array.isArray(c.luzes) ? c.luzes : []).slice(0, 300).map(l => (l && Number.isFinite(l.x) && Number.isFinite(l.y) ? { id: String(l.id).slice(0, 64), x: l.x, y: l.y, tipo: LUZES[l.tipo] ? l.tipo : 'tocha' } : null)).filter(Boolean),
     nevoa: c.nevoa?.ativa ? { ativa: true, reveladas: (Array.isArray(c.nevoa.reveladas) ? c.nevoa.reveladas : []).filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 200000) } : { ativa: false, reveladas: [] },
   };
@@ -1410,12 +1646,13 @@ function limparCenaRecebida(c) {
 function limparParede(w) {
   const pt = p => (p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 1e7 && Math.abs(p.y) < 1e7 ? { x: p.x, y: p.y } : null);
   const a = pt(w?.a), b = pt(w?.b);
-  return a && b ? { id: String(w.id).slice(0, 64), a, b, tipo: w.tipo === 'porta' ? 'porta' : 'parede', aberta: !!w.aberta, trancada: !!w.trancada } : null;
+  return a && b ? { id: String(w.id).slice(0, 64), a, b, tipo: w.tipo === 'porta' ? 'porta' : 'parede', aberta: !!w.aberta, trancada: !!w.trancada, ...(w.grupo ? { grupo: String(w.grupo).slice(0, 64) } : {}) } : null;
 }
 function limparToken(t) {
   if (!t || typeof t !== 'object') return null;
   const r = { luz: LUZES[t.luz] ? t.luz : '', id: String(t.id).slice(0, 64), nome: String(t.nome || '').slice(0, 40), tipo: t.tipo === 'pc' ? 'pc' : 'npc', cor: corValida(t.cor) || '#5b7c66',
-    tam: numero(t.tam, 0.5, 4, 1), x: inteiro(t.x, -500, 5000), y: inteiro(t.y, -500, 5000), dono: String(t.dono || ''), img: imagemValida(t.img) };
+    tam: numero(t.tam, 0.5, 4, 1), x: inteiro(t.x, -500, 5000), y: inteiro(t.y, -500, 5000), dono: String(t.dono || ''), img: imagemValida(t.img),
+    condicoes: limparCondicoes(t.condicoes), exaustao: inteiro(t.exaustao, 0, 6, 0) };
   if (t.tipo === 'pc') {
     r.pv = inteiro(t.pv, -999, 9999); r.pvMax = inteiro(t.pvMax, 0, 9999);
     r.ca = t.ca == null ? null : inteiro(t.ca, 0, 40); r.desloc = numero(t.desloc, 0, 300); r.visao = numero(t.visao, 0, 300); r.ini = inteiro(t.ini, -10, 30);
@@ -1559,6 +1796,13 @@ function tratarMensagemDoMestre(msg) {
     tab.redesenhar(); desenharPainelJogador();
   } else if (msg.t === 'tok-fora') {
     c.tokens = c.tokens.filter(x => x.id !== msg.id); tab.redesenhar(); desenharPainelJogador();
+  } else if (msg.t === 'item' && ['desenhos', 'moldes'].includes(msg.lista)) {
+    const item = msg.lista === 'desenhos' ? limparDesenho(msg.item) : limparMolde(msg.item); if (!item) return;
+    c[msg.lista] = c[msg.lista].filter(x => x.id !== item.id); c[msg.lista].push(item); tab.redesenhar();
+    if (msg.lista === 'moldes' && tab.ferramenta === 'molde') desenharOpcoesMolde();
+  } else if (msg.t === 'item-fora' && ['desenhos', 'moldes'].includes(msg.lista) && Array.isArray(msg.ids)) {
+    const fora = new Set(msg.ids.map(String)); c[msg.lista] = c[msg.lista].filter(x => !fora.has(x.id)); tab.redesenhar();
+    if (msg.lista === 'moldes' && tab.ferramenta === 'molde') desenharOpcoesMolde();
   } else if (msg.t === 'mov') {
     const t = c.tokens.find(x => x.id === msg.id);
     if (t) { t.x = inteiro(msg.x, -500, 5000); t.y = inteiro(msg.y, -500, 5000); tab.redesenhar(); }
@@ -1600,6 +1844,11 @@ function iniciarJogador(perfil, codigo) {
     configVisao: () => (J.cena ? configDaVisao(J.cena, J.cena.tokens.filter(t => t.dono === J.eu.id)) : null),
     ehMeu: t => t.dono === J.eu.id,
     aoPorta: w => J.conexao.enviar({ t: 'porta', id: w.id }),
+    escuridoesParaDesenhar: () => escuridoesDaCena(J.cena),
+    aoDesenho: d => { if (!J.cena) return; const n = { ...d, id: uid(), dono: J.eu.id }; J.cena.desenhos.push(n); tab.redesenhar(); J.conexao.enviar({ t: 'desenho', d: n }); },
+    aoApagarDesenho: d => apagarDesenho(d),
+    aoMolde: m => { if (!J.cena) return; const n = { ...m, id: uid(), dono: J.eu.id, cor: J.eu.cor }; J.cena.moldes.push(n); tab.redesenhar(); J.conexao.enviar({ t: 'molde', m: n }); desenharOpcoesMolde(); },
+    aoAvisoMolde: texto => avisar(texto),
     limiteMovimento: t => (J.combate?.ordem.some(o => o.id === t.id) && t.desloc ? { andou: J.combate.andou[t.id] || 0, desloc: t.desloc } : null),
     aoRegua: r => {
       // manda no máximo 20 vezes por segundo
@@ -1727,6 +1976,13 @@ function desenharPainelJogador() {
     aoVida: (acao, valor) => mudar(acao, { valor }),
     aoRecurso: (recurso, acao) => mudar(acao, { recurso }),
     aoIniciativa: rolarIniciativaJogador,
+    aoVisao: () => {
+      const v = prompt('Visão no escuro do seu personagem, em metros (0 = nenhuma). Mude se uma magia, item ou habilidade der ou tirar visão no escuro.', eu.visao || 0);
+      if (v == null) return;
+      const n = Number(String(v).replace(',', '.'));
+      if (!Number.isFinite(n) || n < 0 || n > 300) { avisar('Escreva um número de 0 a 300.', true); return; }
+      mudar('visao', { valor: n });
+    },
     iniciativaPendente: iniciativaPendente(),
     aoDescanso: tipo => { if (confirm(tipo === 'longo' ? 'Descanso longo: recupera todos os PV e usos. Confirmar?' : 'Descanso curto: recupera os usos de descanso curto. Confirmar?')) mudar('descanso', { tipo }); },
     extras: [
@@ -1734,6 +1990,7 @@ function desenharPainelJogador() {
         meus.map(t => el('option', { value: t.id, texto: t.nome, selected: t.id === eu.id })))) : null,
       botoesFicha,
       escolhaDeToken(),
+      blocoCondicoes(eu, { podeEditar: true, aoCondicao: (cond, ligar) => mudar('condicao', { cond, ligar }), aoExaustao: n => mudar('exaustao', { valor: n }) }),
       J.cena?.visao?.ativa ? el('label', {}, 'Sua luz (tocha, lampião…)', el('select', { onchange: e => mudar('luz', { luz: e.target.value }) },
         el('option', { value: '', texto: 'Nenhuma' }), Object.entries(LUZES).map(([k, l]) => el('option', { value: k, texto: `${l.nome} (${l.plena}+${l.penumbra} m)`, selected: eu.luz === k })))) : null,
       el('details', { class: 'bloco' }, el('summary', { texto: 'Como usar' }),

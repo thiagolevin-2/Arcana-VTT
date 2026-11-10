@@ -7,7 +7,7 @@
 <meta name="description" content="Tabuleiro virtual para jogar D&D com os amigos: mapa, grade, tokens, régua e ping ao vivo.">
 <meta name="theme-color" content="#111914">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="estilo.css?v=0.9">
+<link rel="stylesheet" href="estilo.css?v=1.0">
 </head>
 <body>
 
@@ -65,6 +65,10 @@
       <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3zM3 12h18M9 5v7M15 12v7" fill="none"/></svg></button>
     <button data-ferramenta="terreno" class="so-mestre" title="Terreno difícil: pinte quadrados que custam o dobro para andar (T)" aria-label="Terreno difícil">
       <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z" fill="none"/><path d="M3 13L13 3M3 21L21 3M11 21l10-10" fill="none"/></svg></button>
+    <button data-ferramenta="desenho" title="Desenho livre no mapa (D)" aria-label="Desenho livre">
+      <svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3" fill="none" stroke-linejoin="round"/></svg></button>
+    <button data-ferramenta="molde" title="Molde de magia: esfera, cone, linha, cubo (M)" aria-label="Molde de magia">
+      <svg viewBox="0 0 24 24"><path d="M3 12L20 4v16z" fill="none" stroke-linejoin="round"/><circle cx="3" cy="12" r="1.6"/></svg></button>
     <button id="btn-3d" title="Dados 3D" aria-label="Ligar ou desligar os dados 3D" aria-pressed="true">
       <svg viewBox="0 0 24 24"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z" fill="none"/><path d="M12 2.5v6.2M3.8 7.25l8.2 1.45 8.2-1.45M12 8.7l-5 8.6h10z" fill="none"/></svg></button>
     <button id="btn-dados" class="so-celular" title="Rolagens" aria-label="Abrir rolagens">
@@ -79,6 +83,8 @@
     <div id="aviso-iniciativa" class="aviso-iniciativa" hidden role="alert"></div>
     <div id="opcoes-nevoa" class="opcoes-nevoa" hidden></div>
     <div id="opcoes-paredes" class="opcoes-nevoa" hidden></div>
+    <div id="opcoes-desenho" class="opcoes-nevoa" hidden></div>
+    <div id="opcoes-molde" class="opcoes-nevoa" hidden></div>
     <div id="dica-ferramenta" class="dica-ferramenta" hidden></div>
     <div id="dados3d" class="dados3d-canto" aria-live="polite"></div>
     <section id="rolagens" class="rolagens" aria-label="Rolagens"></section>
@@ -103,7 +109,7 @@
 
 <div id="avisos" class="avisos" role="status" aria-live="polite"></div>
 
-<script src="vendor/peerjs-1.5.4.min.js?v=0.9"></script>
-<script type="module" src="js/app.js?v=0.9"></script>
+<script src="vendor/peerjs-1.5.4.min.js?v=1.0"></script>
+<script type="module" src="js/app.js?v=1.0"></script>
 </body>
 </html>
