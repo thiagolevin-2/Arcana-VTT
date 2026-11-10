@@ -36,6 +36,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
   const imagens = new Map();       // retratos já carregados
   const pings = [];                // { x, y, cor, t0 }
   const reguas = new Map();        // réguas de outras pessoas
+  const lasers = new Map();        // bolinhas com rastro: id -> { cor, pontos: [{x, y, t}] }
+  const DURACAO_RASTRO = 700;      // em milissegundos
   let minhaRegua = null;           // { a, b }
   let arrasto = null;              // o que o ponteiro está fazendo agora
   const ponteiros = new Map();     // para o zoom com dois dedos
@@ -94,6 +96,15 @@ export function criarTabuleiro(canvas, eventos = {}) {
     vista.x = c.x - largura / 2 / vista.escala; vista.y = c.y - altura / 2 / vista.escala; precisa = true;
   };
   api.mostrarPing = (x, y, cor) => { pings.push({ x, y, cor, t0: performance.now() }); precisa = true; };
+  // acrescenta um ponto ao rastro da bolinha de alguém (x = null: soltou o botão)
+  api.mostrarLaser = (id, x, y, cor) => {
+    let l = lasers.get(id);
+    if (!l) { l = { cor, pontos: [], ativo: true }; lasers.set(id, l); }
+    l.cor = cor;
+    if (x == null) l.ativo = false;
+    else { l.ativo = true; l.pontos.push({ x, y, t: performance.now() }); if (l.pontos.length > 200) l.pontos.shift(); }
+    precisa = true;
+  };
   api.mostrarRegua = (id, a, b, cor, nome) => {
     if (!a) reguas.delete(id); else reguas.set(id, { a, b, cor, nome });
     precisa = true;
@@ -275,7 +286,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
 
   function quadro(agora) {
     requestAnimationFrame(quadro);
-    const animando = pings.length > 0;
+    const animando = pings.length > 0 || lasers.size > 0;
     if (!precisa && !animando) return;
     precisa = false;
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -307,6 +318,27 @@ export function criarTabuleiro(canvas, eventos = {}) {
     }
     for (const r of reguas.values()) desenharLinha(r.a, r.b, r.cor, r.nome);
     if (minhaRegua) desenharLinha(minhaRegua.a, minhaRegua.b, api.corPropria);
+    // bolinhas com rastro: o rastro afina e some em 0,7 s
+    for (const [id, l] of lasers) {
+      while (l.pontos.length && agora - l.pontos[0].t > DURACAO_RASTRO) l.pontos.shift();
+      if (!l.pontos.length) { if (!l.ativo) lasers.delete(id); continue; }
+      const px = 1 / vista.escala, ps = l.pontos;
+      g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = l.cor;
+      for (let i = 1; i < ps.length; i++) {
+        const k = 1 - (agora - ps[i].t) / DURACAO_RASTRO;
+        g.globalAlpha = Math.max(0, k) * 0.85; g.lineWidth = (2 + 8 * k) * px;
+        g.beginPath(); g.moveTo(ps[i - 1].x, ps[i - 1].y); g.lineTo(ps[i].x, ps[i].y); g.stroke();
+      }
+      const p = ps[ps.length - 1];
+      if (l.ativo) {
+        g.globalAlpha = 0.35; g.fillStyle = l.cor;
+        g.beginPath(); g.arc(p.x, p.y, 14 * px, 0, Math.PI * 2); g.fill();
+        g.globalAlpha = 1;
+        g.beginPath(); g.arc(p.x, p.y, 7 * px, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#fff'; g.lineWidth = 2 * px; g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
     // pings: círculos que crescem e somem
     for (let i = pings.length - 1; i >= 0; i--) {
       const p = pings[i], t = (agora - p.t0) / 1600;
@@ -360,6 +392,10 @@ export function criarTabuleiro(canvas, eventos = {}) {
     const inicio = { sx: p.sx, sy: p.sy, id: e.pointerId };
     if (e.button === 1 || e.button === 2) { arrasto = { tipo: 'pan', ...inicio, vx: vista.x, vy: vista.y }; return; }
     if (e.shiftKey || e.altKey || api.ferramenta === 'ping') { eventos.aoPing?.(w.x, w.y); arrasto = null; return; }
+    if (api.ferramenta === 'laser') {
+      api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
+      arrasto = { tipo: 'laser', ...inicio }; return;
+    }
     if (api.ferramenta === 'regua') {
       const c = celulaEm(w.x, w.y);
       minhaRegua = { a: c, b: c }; arrasto = { tipo: 'regua', ...inicio }; precisa = true; return;
@@ -416,6 +452,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const im = arrasto.img, { lx, ly } = paraLocal(im, w.x, w.y);
       im.largura = Math.max(16 / vista.escala, 2 * Math.max(lx, ly * im.w / im.h));
       precisa = true;
+    } else if (arrasto.tipo === 'laser') {
+      api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
     } else if (arrasto.tipo === 'regua') {
       minhaRegua.b = celulaEm(w.x, w.y);
       eventos.aoRegua?.(minhaRegua);
@@ -444,6 +482,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
         const t = a.clique === 'vazio' ? null : a.clique.token;
         api.selecionado = t?.id || null; api.imagemSelecionada = null; eventos.aoSelecionar?.(t);
       }
+    } else if (a.tipo === 'laser') {
+      api.mostrarLaser('eu', null, null, api.corPropria); eventos.aoLaser?.(null);
     } else if (a.tipo === 'regua') {
       minhaRegua = null; eventos.aoRegua?.(null);
     } else if (a.tipo === 'grade' && a.b) {

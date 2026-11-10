@@ -150,3 +150,16 @@ input[type=range]{padding:0;accent-color:var(--verde)}
 .vitrine img{max-width:min(92vw,1400px);max-height:calc(100vh - 140px);object-fit:contain;border-radius:10px;
   box-shadow:0 20px 60px #000a;animation:surge .25s ease-out}
 .vitrine figcaption{color:var(--ouro);font-weight:650;font-size:17px}
+
+/* ---- 0.3: cores prontas ---- */
+.campo-cor{display:grid;gap:6px}
+.rotulo{font-size:13px;color:var(--apagado)}
+.painel .rotulo{font-size:12px}
+.cores{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.amostra{width:30px;height:30px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;
+  box-shadow:inset 0 0 0 2px rgba(0,0,0,.25);transition:transform .1s}
+.amostra:hover{transform:scale(1.08)}
+.amostra[aria-checked=true]{border-color:var(--tinta);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--tinta)}
+.cores input[type=color]{width:34px;height:30px;min-height:30px;border-radius:8px}
+.cores input[type=color].marcada{outline:2px solid var(--tinta);outline-offset:2px}
+.painel .amostra{width:26px;height:26px}

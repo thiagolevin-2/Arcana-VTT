@@ -2,9 +2,9 @@
 import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js';
 import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js';
 import { criarTabuleiro, estadoDe, celulasDe } from './tabuleiro.js';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor } from './conexao.js';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js';
 
-const VERSAO = '0.2';
+const VERSAO = '0.3';
 const $ = s => document.querySelector(s);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
 const celular = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
@@ -52,6 +52,37 @@ const corValida = c => (/^#[0-9a-f]{6}$/i.test(c) ? c : null);
 const imagemValida = s => (typeof s === 'string' && s.startsWith('data:image/') && s.length < 400000 ? s : null);
 const hashValido = h => typeof h === 'string' && /^[0-9a-f]{32}$/.test(h);
 const TIPOS_IMAGEM = 'image/png,image/jpeg,image/webp';
+
+// 6 cores prontas + "outra cor" (abre o seletor do navegador)
+const CORES = [['#d64541', 'Vermelho'], ['#e8873a', 'Laranja'], ['#e9c46a', 'Amarelo'], ['#4caf6e', 'Verde'], ['#3a86d6', 'Azul'], ['#9b6bd6', 'Roxo']];
+function escolhaDeCor(atual, aoMudar) {
+  const caixa = el('div', { class: 'cores', role: 'radiogroup', 'aria-label': 'Cor' });
+  const outra = el('input', { type: 'color', value: corValida(atual) || '#a4c29a', title: 'Outra cor', 'aria-label': 'Outra cor' });
+  const marcar = cor => {
+    caixa.querySelectorAll('.amostra').forEach(b => b.setAttribute('aria-checked', String(b.dataset.cor === cor.toLowerCase())));
+    outra.classList.toggle('marcada', !CORES.some(([c]) => c === cor.toLowerCase()));
+  };
+  for (const [cor, nome] of CORES) {
+    caixa.append(el('button', { type: 'button', class: 'amostra', role: 'radio', 'data-cor': cor, title: nome, 'aria-label': nome, style: `background:${cor}`,
+      onclick: () => { outra.value = cor; marcar(cor); aoMudar(cor); } }));
+  }
+  outra.addEventListener('input', () => { marcar(outra.value); aoMudar(outra.value); });
+  caixa.append(outra);
+  marcar(corValida(atual) || '');
+  return caixa;
+}
+
+// Manda no máximo uma mensagem a cada "ms" (a última sempre chega); null passa na hora.
+function limitador(enviar, ms = 40) {
+  let ultimo = 0, pendente, timer = null;
+  return valor => {
+    clearTimeout(timer);
+    const agora = performance.now();
+    if (valor == null || agora - ultimo >= ms) { ultimo = agora; enviar(valor); return; }
+    pendente = valor;
+    timer = setTimeout(() => { ultimo = performance.now(); enviar(pendente); }, ms - (agora - ultimo));
+  };
+}
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -120,6 +151,7 @@ function prepararTabuleiro(eventos) {
   const dicas = {
     regua: 'Régua: arraste para medir. Cada quadrado = 1,5 m.',
     ping: 'Ping: clique no mapa para mostrar um ponto a todos.',
+    laser: 'Bolinha com rastro: segure o botão e mexa o mouse. Todos veem o caminho.',
     grade: 'Ajustar grade: arraste por cima de UM quadrado desenhado no mapa, de canto a canto.',
   };
   const escolher = f => {
@@ -135,7 +167,7 @@ function prepararTabuleiro(eventos) {
     if (e.target.closest('input,select,textarea')) return;
     const k = e.key.toLowerCase();
     if (k === 'escape' && !$('#vitrine').hidden) { fecharVitrine(true); return; }
-    if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping');
+    if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping'); else if (k === 'l') escolher('laser');
     else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 'f') tab.enquadrar();
     else if (k === 'escape') escolher('mover');
     else eventos.aoTecla?.(e);
@@ -238,6 +270,7 @@ async function iniciarMestre() {
     aoMudarImagem: () => { salvar(); enviarImagens(cenaAberta()); atualizarSeAba('imagens'); },
     aoPing: (x, y) => { tab.mostrarPing(x, y, '#d3bb7c'); if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'ping', x, y, cor: '#d3bb7c' }); },
     aoRegua: r => { if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'regua', id: 'mestre', a: r?.a, b: r?.b, cor: '#d3bb7c', nome: 'Mestre' }); },
+    aoLaser: (() => { const mandar = limitador(p => { if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'laser', id: 'mestre', cor: '#d3bb7c', x: p?.x, y: p?.y, fim: !p }); }); return (x, y) => mandar(x == null ? null : { x, y }); })(),
     aoAjustarGrade: (tam, ox, oy) => {
       Object.assign(cenaAberta().grade, { tam: Math.round(tam * 10) / 10, ox: Math.round(ox * 10) / 10, oy: Math.round(oy * 10) / 10 });
       salvar(); tab.redesenhar(); enviarCena(); abaMestre = 'grade'; desenharPainelMestre(); escolherFerramenta('mover');
@@ -282,6 +315,7 @@ function ligarSala() {
     },
     aoSair: j => { avisar(`${j.nome} saiu.`); envios.delete(j.id); atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas'); },
     aoMensagem: (j, msg) => tratarMensagemDoJogador(j, msg),
+    aoFalha: () => avisar('Alguém tentou entrar, mas a internet bloqueou o caminho até você. Ligue a ponte em Ajustes › Conexão.', true),
   });
 }
 function atualizarStatusMestre() {
@@ -306,6 +340,20 @@ function tratarMensagemDoJogador(j, msg) {
     const a = cel(msg.a), b = cel(msg.b);
     if (cenaAberta().id === M.ativa) tab.mostrarRegua(j.id, a, b, j.cor, j.nome);
     sala.paraTodos({ t: 'regua', id: j.id, a, b, cor: j.cor, nome: j.nome }, o => o !== j);
+  } else if (msg.t === 'criar-token' && c) {
+    // o jogador coloca o próprio token (no máximo 3 por jogador)
+    if (c.tokens.filter(t => t.dono === j.id).length >= 3) return;
+    const t = { id: uid(), nome: String(msg.nome || j.nome).trim().slice(0, 40) || j.nome, tipo: 'pc', cor: corValida(msg.cor) || j.cor,
+      tam: 1, pv: 0, pvMax: 0, dono: j.id, oculto: false, img: null, x: inteiro(msg.x, -500, 5000), y: inteiro(msg.y, -500, 5000) };
+    c.tokens.push(t);
+    salvar(); if (cenaAberta().id === c.id) tab.redesenhar();
+    enviarToken(c, t); atualizarSeAba('tokens');
+    avisar(`${j.nome} colocou o token "${t.nome}".`);
+  } else if (msg.t === 'laser') {
+    const fim = !!msg.fim || msg.x == null;
+    const x = fim ? null : numero(msg.x, -1e7, 1e7), y = fim ? null : numero(msg.y, -1e7, 1e7);
+    if (cenaAberta().id === M.ativa) tab.mostrarLaser(j.id, x, y, j.cor);
+    sala.paraTodos({ t: 'laser', id: j.id, cor: j.cor, x, y, fim }, o => o !== j);
   } else if (msg.t === 'preciso' && hashValido(msg.hash)) {
     mandarMapa(j, msg.hash);
   }
@@ -341,7 +389,7 @@ function atualizarSeAba(...abas) {
   desenharPainelMestre();
 }
 function desenharPainelMestre() {
-  const abas = [['cenas', 'Cenas'], ['tokens', 'Tokens'], ['imagens', 'Imagens'], ['grade', 'Grade'], ['jogadores', 'Jogadores'], ['backup', 'Backup']];
+  const abas = [['cenas', 'Cenas'], ['tokens', 'Tokens'], ['imagens', 'Imagens'], ['grade', 'Grade'], ['jogadores', 'Jogadores'], ['backup', 'Ajustes']];
   const corpo = { cenas: painelCenas, tokens: painelTokens, imagens: painelImagens, grade: painelGrade, jogadores: painelJogadores, backup: painelBackup }[abaMestre]();
   const rolagem = $('#painel .conteudo')?.scrollTop || 0;
   $('#painel').replaceChildren(
@@ -450,9 +498,9 @@ function painelTokens() {
 
   const form = el('div', { class: 'bloco' },
     titulo(t ? 'Editar: ' + t.nome : 'Novo token', t ? el('button', { class: 'btn pequeno', texto: '+ Novo', onclick: () => { tab.selecionado = null; tab.redesenhar(); desenharPainelMestre(); } }) : null),
-    el('div', { class: 'linha-campos' },
-      el('label', { class: 'cresce' }, 'Nome', campo('nome', { maxlength: 40 })),
-      el('label', {}, 'Cor', campo('cor', { type: 'color' }))),
+    el('label', {}, 'Nome', campo('nome', { maxlength: 40 })),
+    el('div', { class: 'linha-campos meio' }, el('span', { class: 'rotulo', texto: 'Cor' }),
+      escolhaDeCor(rascunho.cor, cor => { rascunho.cor = cor; if (t) aplicar(); })),
     el('div', { class: 'linha-campos' },
       el('label', { class: 'cresce' }, 'Tipo', el('select', { onchange: e => { rascunho.tipo = e.target.value; if (t) aplicar(); } },
         el('option', { value: 'pc', texto: 'Personagem', selected: rascunho.tipo === 'pc' }),
@@ -695,7 +743,31 @@ async function restaurarBackup() {
 function painelBackup() {
   const uso = el('p', { class: 'dica', texto: 'Calculando espaço…' });
   espaco().then(e => { uso.textContent = e ? `Usando ${tamanhoLegivel(e.usado)} de ${tamanhoLegivel(e.total)} que o navegador libera para este site.` : ''; });
+  const ponte = lerPonte() || { urls: [], usuario: '', senha: '' };
+  const fUrls = el('input', { value: ponte.urls.join(' '), placeholder: 'turn:exemplo.com:3478', spellcheck: 'false', autocomplete: 'off' });
+  const fUsuario = el('input', { value: ponte.usuario || '', autocomplete: 'off', spellcheck: 'false' });
+  const fSenha = el('input', { value: ponte.senha || '', type: 'password', autocomplete: 'off' });
+  const resultado = el('p', { class: 'dica', texto: lerPonte() ? 'Ponte configurada.' : 'Sem ponte: só conecta quando a internet de vocês permite conexão direta.' });
+  const lerCampos = () => {
+    const urls = fUrls.value.split(/[\s,]+/).map(s => s.trim()).filter(s => /^turns?:/.test(s)).slice(0, 6);
+    return urls.length ? { urls, usuario: fUsuario.value.trim(), senha: fSenha.value } : null;
+  };
   return [
+    el('div', { class: 'bloco' }, titulo('Conexão: ponte (TURN)'),
+      el('p', { class: 'dica', texto: 'Se o jogador vê "a internet bloqueou a conexão", cole aqui um servidor TURN (grátis com cadastro, veja o LEIA_PRIMEIRO). Só o mestre precisa configurar.' }),
+      el('label', {}, 'Endereço(s) TURN', fUrls),
+      el('div', { class: 'linha-campos' }, el('label', { class: 'cresce' }, 'Usuário', fUsuario), el('label', { class: 'cresce' }, 'Senha', fSenha)),
+      el('div', { class: 'acoes' },
+        el('button', { class: 'btn pequeno', texto: 'Testar ponte', onclick: async () => {
+          const p = lerCampos(); if (!p) { resultado.textContent = 'Escreva um endereço que comece com turn:'; return; }
+          resultado.textContent = 'Testando…';
+          resultado.textContent = (await testarPonte(p)) ? '✓ A ponte respondeu. Pode salvar.' : '✗ A ponte não respondeu. Confira endereço, usuário e senha.';
+        } }),
+        el('button', { class: 'btn pequeno primario', texto: 'Salvar e reabrir a sala', onclick: () => {
+          salvarPonte(lerCampos()); avisar('Ponte salva. Reabrindo a sala…'); sala?.fechar(); setTimeout(() => location.reload(), 900);
+        } }),
+        lerPonte() ? el('button', { class: 'btn pequeno perigo', texto: 'Tirar ponte', onclick: () => { salvarPonte(null); sala?.fechar(); setTimeout(() => location.reload(), 700); } }) : null),
+      resultado),
     el('div', { class: 'bloco' }, titulo('Guardar tudo num arquivo'),
       el('p', { class: 'dica', texto: 'Tudo fica salvo neste navegador. Limpar os dados do navegador apaga as cenas, então baixe um backup no fim de cada sessão. O backup leva os mapas e imagens junto, por isso pode ficar grande.' }),
       el('button', { class: 'btn primario', texto: 'Baixar backup', onclick: baixarBackup }),
@@ -806,6 +878,9 @@ function tratarMensagemDoMestre(msg) {
     if (t) { t.x = inteiro(msg.x, -500, 5000); t.y = inteiro(msg.y, -500, 5000); tab.redesenhar(); }
   } else if (msg.t === 'ping') {
     tab.mostrarPing(numero(msg.x, -1e6, 1e6), numero(msg.y, -1e6, 1e6), corValida(msg.cor) || '#d3bb7c');
+  } else if (msg.t === 'laser') {
+    const fim = !!msg.fim || msg.x == null;
+    tab.mostrarLaser('j:' + String(msg.id).slice(0, 64), fim ? null : numero(msg.x, -1e7, 1e7), fim ? null : numero(msg.y, -1e7, 1e7), corValida(msg.cor) || '#d3bb7c');
   } else if (msg.t === 'regua') {
     const cel = p => (p && { cx: inteiro(p.cx, -1e5, 1e5), cy: inteiro(p.cy, -1e5, 1e5) });
     tab.mostrarRegua(String(msg.id), cel(msg.a), cel(msg.b), corValida(msg.cor) || '#d3bb7c', String(msg.nome || '').slice(0, 40));
@@ -833,6 +908,7 @@ function iniciarJogador(perfil, codigo) {
     aoSelecionar: () => tab.redesenhar(),
     imagemDe: hash => imagensAbertas.get(hash)?.m || null,
     aoPing: (x, y) => { tab.mostrarPing(x, y, J.eu.cor); J.conexao.enviar({ t: 'ping', x, y }); },
+    aoLaser: (() => { const mandar = limitador(p => J.conexao?.enviar(p ? { t: 'laser', x: p.x, y: p.y } : { t: 'laser', fim: true })); return (x, y) => mandar(x == null ? null : { x, y }); })(),
     aoRegua: r => {
       // manda no máximo 20 vezes por segundo
       reguaPendente = r;
@@ -851,13 +927,16 @@ function iniciarJogador(perfil, codigo) {
   avisoMapa('Conectando à sala do mestre…');
   desenharPainelJogador();
   if (!window.Peer) { definirStatus('Sem a biblioteca de conexão.', 'off'); return; }
+  let conectado = false;
   J.conexao = entrarNaSala(codigo, J.eu, {
     aoConectar: () => {
+      conectado = true;
       definirStatus('Conectado', 'on'); avisoMapa(null);
       // reconectou: pede de novo os arquivos que estavam a caminho
       const pendentes = [...J.esperando]; J.esperando.clear(); pendentes.forEach(pedirMapa);
     },
-    aoStatus: t => definirStatus(t, 'espera'),
+    // a barra de cima corta textos longos; antes de conectar, a mensagem inteira aparece no meio da tela
+    aoStatus: t => { definirStatus(t, 'espera'); if (!conectado || !J.cena) avisoMapa(t); else avisar(t); conectado = false; },
     aoMensagem: tratarMensagemDoMestre,
     aoFim: () => { definirStatus('O mestre encerrou a sala.', 'off'); avisar('O mestre encerrou a sala.'); },
   });
@@ -872,7 +951,13 @@ function desenharPainelJogador() {
       meus.length ? el('div', { class: 'lista' }, meus.map(t => el('button', { class: 'item', onclick: () => { tab.centralizarEm(t); $('#painel').classList.remove('aberto'); } },
         el('span', { class: 'bola', style: `background:${t.cor}` }), el('span', { class: 'nome', texto: t.nome }),
         t.pvMax ? el('span', { class: 'etiqueta cinza', texto: `${t.pv}/${t.pvMax} PV` }) : null)))
-        : el('p', { class: 'vazio', texto: 'O mestre ainda não te deu um token. Peça para ele escolher você em "Quem move".' })),
+        : el('p', { class: 'vazio', texto: 'Você ainda não tem token nesta cena.' }),
+      J.cena && meus.length < 3 ? el('button', { class: 'btn primario', texto: meus.length ? '+ Outro token meu' : 'Colocar meu token no mapa', onclick: () => {
+        const centro = tab.centroDaTela(), cel = tab.celulaEm(centro.x, centro.y);
+        J.conexao.enviar({ t: 'criar-token', nome: meus.length ? `${J.eu.nome} ${meus.length + 1}` : J.eu.nome, cor: J.eu.cor, x: cel.cx, y: cel.cy });
+        $('#painel').classList.remove('aberto');
+      } }) : null,
+      meus.length ? el('p', { class: 'dica', texto: 'Arraste o seu token no mapa para andar.' }) : null),
     el('div', { class: 'bloco' }, titulo('Como usar'),
       el('p', { class: 'dica', texto: celular
         ? 'Arraste com um dedo para mover a tela ou o seu token. Dois dedos dão zoom. Segure o dedo parado para fazer um ping.'
@@ -894,7 +979,9 @@ window.arcanaTabuleiro = { get tab() { return tab; }, M, J, imagensAbertas };
 
 (async function inicio() {
   const perfil = lerPerfil();
-  if (perfil) { $('#j-nome').value = perfil.nome || ''; $('#j-cor').value = corValida(perfil.cor) || '#a4c29a'; $('#j-codigo').value = perfil.codigo || ''; }
+  let corEscolhida = corValida(perfil?.cor) || CORES[3][0];
+  if (perfil) { $('#j-nome').value = perfil.nome || ''; $('#j-codigo').value = perfil.codigo || ''; }
+  $('#j-cores').replaceWith(escolhaDeCor(corEscolhida, c => { corEscolhida = c; }));
   const codigoNaUrl = new URLSearchParams(location.search).get('sala');
   if (codigoNaUrl) $('#j-codigo').value = codigoNaUrl.toUpperCase().slice(0, 6);
   const salvo = await ler('dados', 'mestre').catch(() => null);
@@ -906,7 +993,7 @@ window.arcanaTabuleiro = { get tab() { return tab; }, M, J, imagensAbertas };
     e.preventDefault();
     const codigo = $('#j-codigo').value.trim().toUpperCase();
     if (!codigoValido(codigo)) { avisar('O código tem 6 letras e números. Peça de novo ao mestre.', true); return; }
-    const p = { id: perfil?.id || uid(), nome: $('#j-nome').value.trim().slice(0, 40) || 'Jogador', cor: $('#j-cor').value, codigo };
+    const p = { id: perfil?.id || uid(), nome: $('#j-nome').value.trim().slice(0, 40) || 'Jogador', cor: corEscolhida, codigo };
     salvarPerfil(p);
     iniciarJogador(p, codigo);
   });
