@@ -62,6 +62,37 @@ function opcoesPeer() {
 }
 
 const espera = ms => new Promise(r => setTimeout(r, ms));
+// O PeerJS descarta SEM AVISO toda mensagem com mais de ~16 KB (cena com muitas paredes livres
+// e curvas, fichas, retratos). Por isso as mensagens grandes vão em partes pequenas e são remontadas do outro lado.
+const LIMITE_MSG = 15000; // bytes, com folga
+const bytesDe = x => new TextEncoder().encode(x).length;
+let seqParte = 0;
+function mandar(conn, msg) {
+  const s = JSON.stringify(msg);
+  if (s.length <= LIMITE_MSG / 3 || bytesDe(s) <= LIMITE_MSG) { conn.send(msg); return; }
+  const id = (++seqParte).toString(36) + Math.random().toString(36).slice(2, 8), partes = [];
+  for (let pos = 0; pos < s.length;) {
+    let n = 6000;
+    while (n > 50 && bytesDe(JSON.stringify(s.slice(pos, pos + n))) > LIMITE_MSG - 200) n = n >> 1;
+    partes.push(s.slice(pos, pos + n)); pos += n;
+  }
+  partes.forEach((d, i) => conn.send({ t: 'parte', id, i, n: partes.length, d }));
+}
+// devolve a mensagem pronta, ou null enquanto faltam partes
+function montador() {
+  const em = new Map();
+  return msg => {
+    if (msg.t !== 'parte') return msg;
+    if (typeof msg.id !== 'string' || typeof msg.d !== 'string' || !(msg.n > 1 && msg.n <= 20000) || !(msg.i >= 0 && msg.i < msg.n)) return null;
+    let a = em.get(msg.id);
+    if (!a) { if (em.size > 20) em.clear(); a = { partes: new Array(msg.n), recebidas: 0 }; em.set(msg.id, a); }
+    if (a.partes.length !== msg.n) return null;
+    if (a.partes[msg.i] == null) { a.partes[msg.i] = msg.d; a.recebidas++; }
+    if (a.recebidas < a.partes.length) return null;
+    em.delete(msg.id);
+    try { const m = JSON.parse(a.partes.join('')); return m && typeof m === 'object' && m.t !== 'parte' ? m : null; } catch { return null; }
+  };
+}
 function filaDe(conn) {
   try { return (conn.dataChannel?.bufferedAmount || 0) + (conn.bufferSize || 0) * PEDACO * 1.4; } catch { return 0; }
 }
@@ -138,8 +169,10 @@ export function abrirSala(codigo, eventos) {
       // alguém tentou entrar: se a rede bloquear o caminho, avisa o mestre
       const vigia = setTimeout(() => { if (!conn.open) eventos.aoFalha?.(); }, ESPERA_CONEXAO);
       conn.on('open', () => clearTimeout(vigia));
-      conn.on('data', msg => {
-        if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
+      const montar = montador();
+      conn.on('data', bruto => {
+        if (!bruto || typeof bruto !== 'object' || typeof bruto.t !== 'string') return;
+        const msg = montar(bruto); if (!msg) { const j0 = jogadores.get(conn.peer); if (j0) j0.ultimo = Date.now(); return; }
         let j = jogadores.get(conn.peer);
         if (j) j.ultimo = Date.now();
         if (msg.t === 'oi') return;
@@ -199,9 +232,9 @@ export function abrirSala(codigo, eventos) {
 
   return {
     jogadores,
-    enviar(j, msg) { try { if (j.conn.open) j.conn.send(msg); } catch {} },
+    enviar(j, msg) { try { if (j.conn.open) mandar(j.conn, msg); } catch {} },
     paraTodos(msg, filtro = () => true) {
-      for (const j of jogadores.values()) if (filtro(j)) try { if (j.conn.open) j.conn.send(msg); } catch {}
+      for (const j of jogadores.values()) if (filtro(j)) try { if (j.conn.open) mandar(j.conn, msg); } catch {}
     },
     fechar() {
       fechada = true;
@@ -256,8 +289,10 @@ export function entrarNaSala(codigo, eu, eventos) {
         c.send({ t: 'ola', ...eu });
         eventos.aoConectar?.();
       });
-      c.on('data', msg => {
-        if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
+      const montar = montador();
+      c.on('data', bruto => {
+        if (!bruto || typeof bruto !== 'object' || typeof bruto.t !== 'string') return;
+        const msg = montar(bruto); if (!msg || typeof msg.t !== 'string') return;
         if (msg.t === 'fim' || msg.t === 'expulso') { saiu = true; eventos.aoFim?.(msg.t === 'expulso' ? (msg.excluido ? 'excluido' : 'expulso') : 'fim'); try { p.destroy(); } catch {} return; }
         eventos.aoMensagem?.(msg);
       });
@@ -274,7 +309,7 @@ export function entrarNaSala(codigo, eu, eventos) {
   tentar();
 
   return {
-    enviar(msg) { try { if (conn?.open) conn.send(msg); } catch {} },
+    enviar(msg) { try { if (conn?.open) mandar(conn, msg); } catch {} },
     sair() { saiu = true; clearTimeout(timer); try { peer?.destroy(); } catch {} },
   };
 }

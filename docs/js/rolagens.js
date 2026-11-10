@@ -5,9 +5,9 @@
 // O mestre confere contra a CA do alvo (que os jogadores não veem) e devolve a "entrada" pronta.
 // O ataque é rolado primeiro; o dano vem depois, num segundo clique — igual à ficha.
 // Antes de rolar um d20, a pessoa escolhe: Normal, Vantagem ou Desvantagem.
-import { rolar, rolarD20, comSinal } from './dados.js?v=1.0.1';
-import { el, uid } from './util.js?v=1.0.1';
-import { diceFromValues } from './dice-geometry.js?v=1.0.1';
+import { rolar, rolarD20, comSinal } from './dados.js?v=1.0.2';
+import { el, uid } from './util.js?v=1.0.2';
+import { diceFromValues } from './dice-geometry.js?v=1.0.2';
 
 // ---------- cálculos ----------
 export function rolarAtaque(acao, modo = 'normal') {

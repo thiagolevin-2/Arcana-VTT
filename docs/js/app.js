@@ -1,22 +1,22 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=1.0.1';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=1.0.1';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=1.0.1';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=1.0.1';
-import { LUZES, calcularVisao, comoVe } from './visao.js?v=1.0.1';
-import { atingidos, limparMolde, FORMAS } from './moldes.js?v=1.0.1';
-import { CONDICOES, CONDICAO, EXAUSTAO, limparCondicoes } from './condicoes.js?v=1.0.1';
-import { rolar, rolarD20 } from './dados.js?v=1.0.1';
-import { ATRIBUTOS } from './fichas.js?v=1.0.1';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=1.0.1';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=1.0.1';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades, blocoCondicoes } from './fichaUI.js?v=1.0.1';
-import { comSinal } from './dados.js?v=1.0.1';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=1.0.1';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=1.0.2';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=1.0.2';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=1.0.2';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=1.0.2';
+import { LUZES, calcularVisao, comoVe } from './visao.js?v=1.0.2';
+import { atingidos, limparMolde, FORMAS } from './moldes.js?v=1.0.2';
+import { CONDICOES, CONDICAO, EXAUSTAO, limparCondicoes } from './condicoes.js?v=1.0.2';
+import { rolar, rolarD20 } from './dados.js?v=1.0.2';
+import { ATRIBUTOS } from './fichas.js?v=1.0.2';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=1.0.2';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=1.0.2';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades, blocoCondicoes } from './fichaUI.js?v=1.0.2';
+import { comSinal } from './dados.js?v=1.0.2';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=1.0.2';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=1.0.1';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=1.0.2';
 
-const VERSAO = '1.0.1';
+const VERSAO = '1.0.2';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -262,6 +262,8 @@ function escondidoNaNevoa(cena, t) {
   return true;
 }
 const visivelParaJogadores = (t, cena) => !t.oculto && (!t.dono || online(t.dono)) && !escondidoNaNevoa(cena, t);
+// ponto com 1 casa decimal (deixa a mensagem bem menor)
+const pt1 = p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 });
 function cenaParaJogador(cena, j) {
   return {
     id: cena.id, nome: cena.nome, colunas: cena.colunas, linhas: cena.linhas, fundo: cena.fundo, grade: cena.grade,
@@ -271,7 +273,7 @@ function cenaParaJogador(cena, j) {
     nevoa: cena.nevoa?.ativa ? { ativa: true, reveladas: cena.nevoa.reveladas } : { ativa: false, reveladas: [] },
     // visão dinâmica: as paredes vão junto (o aparelho do jogador calcula o que ele vê)
     visao: cena.visao?.ativa ? { ativa: true, ambiente: cena.visao.ambiente } : { ativa: false },
-    paredes: cena.visao?.ativa ? (cena.paredes || []).map(w => ({ id: w.id, a: w.a, b: w.b, tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
+    paredes: cena.visao?.ativa ? (cena.paredes || []).map(w => ({ id: w.id, a: pt1(w.a), b: pt1(w.b), tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
     luzes: cena.visao?.ativa ? cena.luzes || [] : [],
     escuridoes: cena.escuridoes || [],
     desenhos: cena.desenhos || [],
