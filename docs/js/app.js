@@ -1,22 +1,22 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=1.0';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=1.0';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=1.0';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=1.0';
-import { LUZES, calcularVisao, comoVe } from './visao.js?v=1.0';
-import { atingidos, limparMolde, FORMAS } from './moldes.js?v=1.0';
-import { CONDICOES, CONDICAO, EXAUSTAO, limparCondicoes } from './condicoes.js?v=1.0';
-import { rolar, rolarD20 } from './dados.js?v=1.0';
-import { ATRIBUTOS } from './fichas.js?v=1.0';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=1.0';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=1.0';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades, blocoCondicoes } from './fichaUI.js?v=1.0';
-import { comSinal } from './dados.js?v=1.0';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=1.0';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=1.0.1';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=1.0.1';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=1.0.1';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=1.0.1';
+import { LUZES, calcularVisao, comoVe } from './visao.js?v=1.0.1';
+import { atingidos, limparMolde, FORMAS } from './moldes.js?v=1.0.1';
+import { CONDICOES, CONDICAO, EXAUSTAO, limparCondicoes } from './condicoes.js?v=1.0.1';
+import { rolar, rolarD20 } from './dados.js?v=1.0.1';
+import { ATRIBUTOS } from './fichas.js?v=1.0.1';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=1.0.1';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=1.0.1';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades, blocoCondicoes } from './fichaUI.js?v=1.0.1';
+import { comSinal } from './dados.js?v=1.0.1';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=1.0.1';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=1.0';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=1.0.1';
 
-const VERSAO = '1.0';
+const VERSAO = '1.0.1';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -225,7 +225,8 @@ function novaCena(nome) {
   return {
     id: uid(), nome, mapa: null, colunas: 30, linhas: 20, fundo: '#2a2f2b',
     grade: { tam: 70, ox: 0, oy: 0, cor: '#000000', opacidade: 0.35, mostrar: true, diagonal: 'simples' },
-    tokens: [], imagens: [],
+    tokens: [], imagens: [], dificil: [], nevoa: { ativa: false, reveladas: [] }, paredes: [], luzes: [],
+    visao: { ativa: false, ambiente: 'escuro' }, escuridoes: [], desenhos: [], moldes: [],
   };
 }
 function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; c.paredes ||= []; c.luzes ||= []; c.visao ||= { ativa: false, ambiente: 'escuro' }; c.escuridoes ||= []; c.desenhos ||= []; c.moldes ||= []; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
@@ -270,8 +271,8 @@ function cenaParaJogador(cena, j) {
     nevoa: cena.nevoa?.ativa ? { ativa: true, reveladas: cena.nevoa.reveladas } : { ativa: false, reveladas: [] },
     // visão dinâmica: as paredes vão junto (o aparelho do jogador calcula o que ele vê)
     visao: cena.visao?.ativa ? { ativa: true, ambiente: cena.visao.ambiente } : { ativa: false },
-    paredes: cena.visao?.ativa ? cena.paredes.map(w => ({ id: w.id, a: w.a, b: w.b, tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
-    luzes: cena.visao?.ativa ? cena.luzes : [],
+    paredes: cena.visao?.ativa ? (cena.paredes || []).map(w => ({ id: w.id, a: w.a, b: w.b, tipo: w.tipo, aberta: !!w.aberta, trancada: !!w.trancada })) : [],
+    luzes: cena.visao?.ativa ? cena.luzes || [] : [],
     escuridoes: cena.escuridoes || [],
     desenhos: cena.desenhos || [],
     moldes: cena.moldes || [],
@@ -715,6 +716,7 @@ function tratarMensagemDoJogador(j, msg) {
     } else if (msg.acao === 'visao') {
       t.visao = numero(msg.valor, 0, 300, 0);
       linha = { rotulo: 'Visão no escuro', total: t.visao ? textoMetros(t.visao) : 'nenhuma', detalhe: 'mudada pelo jogador' };
+      revelarAoExplorar(c, [t]);
     } else if (msg.acao === 'condicao') {
       if (!CONDICAO[msg.cond]) return;
       const set = new Set(t.condicoes || []); if (msg.ligar) set.add(msg.cond); else set.delete(msg.cond);
@@ -1218,8 +1220,8 @@ function desenharOpcoesParedes() {
   const c = cenaAberta(), o = tab.paredes;
   const seg = (lista, atual, mudar) => el('div', { class: 'segmentos' }, lista.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual === v), texto: n, onclick: () => { mudar(v); desenharOpcoesParedes(); } })));
   $('#opcoes-paredes').replaceChildren(...[
-    el('label', { class: 'marcar', title: 'Cada jogador vê só o que o personagem enxerga' }, el('input', { type: 'checkbox', checked: !!c.visao.ativa, onchange: e => { c.visao.ativa = e.target.checked; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesParedes(); } }), 'Visão dinâmica'),
-    el('select', { 'aria-label': 'Luz do ambiente', title: 'Luz do ambiente', onchange: e => { c.visao.ambiente = e.target.value; salvar(); tab.redesenhar(); enviarParedes(c); } },
+    el('label', { class: 'marcar', title: 'Cada jogador vê só o que o personagem enxerga' }, el('input', { type: 'checkbox', checked: !!c.visao.ativa, onchange: e => { c.visao.ativa = e.target.checked; salvar(); tab.redesenhar(); enviarCena(); revelarAoExplorar(c); desenharOpcoesParedes(); } }), 'Visão dinâmica'),
+    el('select', { 'aria-label': 'Luz do ambiente', title: 'Luz do ambiente', onchange: e => { c.visao.ambiente = e.target.value; salvar(); tab.redesenhar(); enviarParedes(c); revelarAoExplorar(c); } },
       [['dia', 'Dia (tudo iluminado)'], ['penumbra', 'Penumbra'], ['escuro', 'Escuridão']].map(([v, n]) => el('option', { value: v, texto: n, selected: c.visao.ambiente === v }))),
     seg([['parede', 'Parede'], ['curva', 'Curva'], ['porta', 'Porta'], ['luz', 'Luz'], ['escuridao', 'Escuridão'], ['apagar', 'Apagar']], o.modo, v => { o.modo = v; tab.terminarParede?.(); }),
     ['parede', 'curva', 'porta'].includes(o.modo) ? el('label', { class: 'marcar', title: 'Desligado: a parede vai onde você clicar. Segure Ctrl para inverter.' }, el('input', { type: 'checkbox', checked: !!o.grade, onchange: e => { o.grade = e.target.checked; } }), 'Encaixar na grade') : null,
