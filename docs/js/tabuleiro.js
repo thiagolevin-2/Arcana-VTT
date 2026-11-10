@@ -68,6 +68,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
     ferramenta: 'mover',
     selecionado: null,
     imagemSelecionada: null,
+    // névoa: forma 'pincel' ou 'retangulo'; acao 'revelar' ou 'esconder'; raio do pincel em quadrados (0 = 1 quadrado)
+    nevoa: { forma: 'pincel', acao: 'revelar', raio: 1 },
     ehMestre: false,
     corPropria: '#d3bb7c',
     redesenhar: () => { precisa = true; },
@@ -166,6 +168,40 @@ export function criarTabuleiro(canvas, eventos = {}) {
       if (x > v1.x || y > v1.y || x + pw < v0.x || y + ph < v0.y) continue;
       g.drawImage(p.img, x, y, pw + emenda, ph + emenda);
     }
+  }
+
+// ---------- névoa de guerra (pintada pelo mestre, quadrado a quadrado) ----------
+  // cena.nevoa = { ativa, reveladas: ["x,y", …] }. O jogador vê preto onde não foi revelado;
+  // o mestre vê um véu escuro transparente (para enxergar o que está escondido).
+  function desenharNevoa() {
+    const n = cena?.nevoa;
+    if (!n?.ativa) return;
+    const q = grade(), v0 = telaParaMundo(0, 0), v1 = telaParaMundo(largura, altura);
+    const x0 = Math.floor((v0.x - q.ox) / q.tam) - 1, y0 = Math.floor((v0.y - q.oy) / q.tam) - 1;
+    const x1 = Math.ceil((v1.x - q.ox) / q.tam) + 1, y1 = Math.ceil((v1.y - q.oy) / q.tam) + 1;
+    g.save();
+    g.beginPath();
+    g.rect(q.ox + x0 * q.tam, q.oy + y0 * q.tam, (x1 - x0) * q.tam, (y1 - y0) * q.tam);
+    // recorta os quadrados revelados (regra "evenodd": o que está dentro de dois retângulos fica vazio)
+    for (const chave of n.reveladas || []) {
+      const i = chave.indexOf(','), cx = +chave.slice(0, i), cy = +chave.slice(i + 1);
+      if (cx < x0 || cx >= x1 || cy < y0 || cy >= y1) continue;
+      g.rect(q.ox + cx * q.tam, q.oy + cy * q.tam, q.tam, q.tam);
+    }
+    g.fillStyle = api.ehMestre ? 'rgba(4,7,5,.55)' : '#070a08';
+    g.fill('evenodd');
+    g.restore();
+  }
+  // quadrados do pincel em volta de uma célula
+  function celulasDoPincel(c) {
+    const r = Math.max(0, Math.min(6, api.nevoa.raio | 0)), lista = [];
+    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) lista.push(`${c.cx + dx},${c.cy + dy}`);
+    return lista;
+  }
+  function celulasDoRetangulo(a, b) {
+    const lista = [];
+    for (let x = Math.min(a.cx, b.cx); x <= Math.max(a.cx, b.cx); x++) for (let y = Math.min(a.cy, b.cy); y <= Math.max(a.cy, b.cy); y++) lista.push(`${x},${y}`);
+    return lista;
   }
 
   // terreno difícil: quadrados com listras alaranjadas
@@ -355,6 +391,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     desenharTerreno();
     desenharGrade();
     for (const im of imgs) if (im.camada !== 'fundo') desenharImagem(im);
+    desenharNevoa();
     for (const t of cena.tokens) {
       if (arrasto?.tipo === 'token' && arrasto.token.id === t.id && arrasto.mexeu) continue;
       desenharToken(t);
@@ -370,6 +407,14 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const textoCusto = textoMetros(custo) + (limite ? ` · total ${textoMetros(limite.andou + custo)} de ${textoMetros(limite.desloc)}` : '');
       desenharLinha({ cx: t.x + meio, cy: t.y + meio }, { cx: arrasto.alvo.x + meio, cy: arrasto.alvo.y + meio }, passou ? '#e0645a' : api.corPropria, null, textoCusto);
       desenharToken(t, arrasto.alvo.x, arrasto.alvo.y);
+    }
+    if (arrasto?.tipo === 'nevoa-ret' && arrasto.b) {
+      const q = grade(), a = arrasto.a, b = arrasto.b;
+      const x = q.ox + Math.min(a.cx, b.cx) * q.tam, y = q.oy + Math.min(a.cy, b.cy) * q.tam;
+      const w = (Math.abs(b.cx - a.cx) + 1) * q.tam, h = (Math.abs(b.cy - a.cy) + 1) * q.tam;
+      g.fillStyle = arrasto.revelar ? 'rgba(164,194,154,.18)' : 'rgba(0,0,0,.35)'; g.fillRect(x, y, w, h);
+      g.strokeStyle = arrasto.revelar ? '#a4c29a' : '#e18b82'; g.lineWidth = 2 / vista.escala; g.setLineDash([8 / vista.escala, 6 / vista.escala]);
+      g.strokeRect(x, y, w, h); g.setLineDash([]);
     }
     if (arrasto?.tipo === 'grade' && arrasto.b) {
       const { a, b } = arrasto;
@@ -456,6 +501,12 @@ export function criarTabuleiro(canvas, eventos = {}) {
       api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
       arrasto = { tipo: 'laser', ...inicio }; return;
     }
+    if (api.ferramenta === 'nevoa' && cena) {
+      const c0 = celulaEm(w.x, w.y), revelar = api.nevoa.acao !== 'esconder';
+      if (api.nevoa.forma === 'retangulo') { arrasto = { tipo: 'nevoa-ret', ...inicio, a: c0, b: c0, revelar }; precisa = true; return; }
+      arrasto = { tipo: 'nevoa', ...inicio, revelar, ultima: `${c0.cx},${c0.cy}` };
+      eventos.aoPintarNevoa?.(celulasDoPincel(c0), revelar); precisa = true; return;
+    }
     if (api.ferramenta === 'terreno' && cena) {
       // o primeiro quadrado decide: pintar (se estava limpo) ou apagar (se já era difícil)
       const c0 = celulaEm(w.x, w.y), chave = `${c0.cx},${c0.cy}`;
@@ -519,6 +570,11 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const im = arrasto.img, { lx, ly } = paraLocal(im, w.x, w.y);
       im.largura = Math.max(16 / vista.escala, 2 * Math.max(lx, ly * im.w / im.h));
       precisa = true;
+    } else if (arrasto.tipo === 'nevoa') {
+      const c1 = celulaEm(w.x, w.y), chave = `${c1.cx},${c1.cy}`;
+      if (chave !== arrasto.ultima) { arrasto.ultima = chave; eventos.aoPintarNevoa?.(celulasDoPincel(c1), arrasto.revelar); precisa = true; }
+    } else if (arrasto.tipo === 'nevoa-ret') {
+      arrasto.b = celulaEm(w.x, w.y); precisa = true;
     } else if (arrasto.tipo === 'terreno') {
       const c1 = celulaEm(w.x, w.y), chave = `${c1.cx},${c1.cy}`;
       if (!arrasto.feitas.has(chave)) { arrasto.feitas.add(chave); eventos.aoPintarTerreno?.(chave, arrasto.pintar); precisa = true; }
@@ -552,6 +608,10 @@ export function criarTabuleiro(canvas, eventos = {}) {
         const t = a.clique === 'vazio' ? null : a.clique.token;
         api.selecionado = t?.id || null; api.imagemSelecionada = null; eventos.aoSelecionar?.(t);
       }
+    } else if (a.tipo === 'nevoa') {
+      eventos.aoTerminarNevoa?.();
+    } else if (a.tipo === 'nevoa-ret') {
+      eventos.aoPintarNevoa?.(celulasDoRetangulo(a.a, a.b), a.revelar); eventos.aoTerminarNevoa?.();
     } else if (a.tipo === 'terreno') {
       eventos.aoTerminarTerreno?.();
     } else if (a.tipo === 'laser') {

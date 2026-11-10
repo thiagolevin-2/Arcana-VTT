@@ -1,17 +1,17 @@
 // app.js — o "maestro": telas, painéis do mestre, tela do jogador e as mensagens entre eles.
-import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.7';
-import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.7';
-import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.7';
-import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.7';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.7';
-import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.7';
-import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.7';
-import { comSinal } from './dados.js?v=0.7';
-import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.7';
+import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel, hashDe } from './armazem.js?v=0.8';
+import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js?v=0.8';
+import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js?v=0.8';
+import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js?v=0.8';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js?v=0.8';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js?v=0.8';
+import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js?v=0.8';
+import { comSinal } from './dados.js?v=0.8';
+import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js?v=0.8';
 
-import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.7';
+import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js?v=0.8';
 
-const VERSAO = '0.7';
+const VERSAO = '0.8';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -116,6 +116,7 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     ping: 'Ping: clique no mapa para mostrar um ponto a todos.',
     laser: 'Bolinha com rastro: segure o botão e mexa o mouse. Todos veem o caminho.',
     grade: 'Ajustar grade: arraste por cima de UM quadrado desenhado no mapa, de canto a canto.',
+    nevoa: 'Névoa: arraste para revelar ou esconder. As opções ficam na barra de cima.',
     terreno: 'Terreno difícil: clique ou arraste para pintar. Comece num quadrado já pintado para apagar. Custa o dobro para andar.',
   };
   const escolher = f => {
@@ -123,6 +124,7 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     document.querySelectorAll('[data-ferramenta]').forEach(b => b.classList.toggle('ativo', b.dataset.ferramenta === f));
     $('#tela').style.cursor = f === 'mover' ? 'grab' : 'crosshair';
     const d = $('#dica-ferramenta'); d.hidden = !dicas[f]; d.textContent = dicas[f] || '';
+    eventos.aoFerramenta?.(f);
   };
   document.querySelectorAll('[data-ferramenta]').forEach(b => b.addEventListener('click', () => escolher(b.dataset.ferramenta)));
   $('#btn-enquadrar').addEventListener('click', () => tab.enquadrar());
@@ -135,7 +137,7 @@ function prepararTabuleiro(eventos, opcoesRolagens) {
     const k = e.key.toLowerCase();
     if (k === 'escape' && !$('#vitrine').hidden) { fecharVitrine(true); return; }
     if (k === 'v') escolher('mover'); else if (k === 'r') escolher('regua'); else if (k === 'p') escolher('ping'); else if (k === 'l') escolher('laser');
-    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'f') tab.enquadrar();
+    else if (k === 'g' && papel === 'mestre') escolher('grade'); else if (k === 't' && papel === 'mestre') escolher('terreno'); else if (k === 'n' && papel === 'mestre') escolher('nevoa'); else if (k === 'f') tab.enquadrar();
     else if (k === 'escape') escolher('mover');
     else eventos.aoTecla?.(e);
   });
@@ -163,7 +165,7 @@ function novaCena(nome) {
     tokens: [], imagens: [],
   };
 }
-function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
+function normalizar() { for (const c of M.cenas) { c.tokens ||= []; c.imagens ||= []; c.dificil ||= []; c.nevoa ||= { ativa: false, reveladas: [] }; } M.fichas ||= {}; M.galeria ||= []; M.bloqueados ||= {}; if (M.combate && !M.cenas.some(c => c.id === M.combate.cenaId)) M.combate = null; }
 const cenaAberta = () => M.cenas.find(c => c.id === M.aberta) || M.cenas[0];
 const cenaAtiva = () => M.cenas.find(c => c.id === M.ativa) || null;
 const salvar = () => { clearTimeout(salvarTimer); salvarTimer = setTimeout(() => guardar('dados', 'mestre', M).catch(e => avisar('Não consegui salvar: ' + e.message, true)), 300); };
@@ -185,13 +187,24 @@ function tokenParaJogador(t) {
 // está conectado agora?
 const online = id => !!id && [...(sala?.jogadores.values() || [])].some(j => j.id === id);
 // os jogadores só veem tokens visíveis e, se o token tem dono, só enquanto o dono está conectado
-const visivelParaJogadores = t => !t.oculto && (!t.dono || online(t.dono));
+// monstro/PdM dentro da névoa: nem é enviado aos jogadores (personagens continuam visíveis)
+function escondidoNaNevoa(cena, t) {
+  if (!cena?.nevoa?.ativa || t.tipo === 'pc') return false;
+  const rev = cena.nevoa._set && cena.nevoa._lista === cena.nevoa.reveladas ? cena.nevoa._set : null;
+  const set = rev || new Set(cena.nevoa.reveladas);
+  if (!rev) { Object.defineProperty(cena.nevoa, '_set', { value: set, writable: true, configurable: true, enumerable: false }); Object.defineProperty(cena.nevoa, '_lista', { value: cena.nevoa.reveladas, writable: true, configurable: true, enumerable: false }); }
+  const n = celulasDe(t.tam);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (set.has(`${t.x + i},${t.y + j}`)) return false;
+  return true;
+}
+const visivelParaJogadores = (t, cena) => !t.oculto && (!t.dono || online(t.dono)) && !escondidoNaNevoa(cena, t);
 function cenaParaJogador(cena, j) {
   return {
     id: cena.id, nome: cena.nome, colunas: cena.colunas, linhas: cena.linhas, fundo: cena.fundo, grade: cena.grade,
     mapa: cena.mapa ? { hash: j.celular ? cena.mapa.leve : cena.mapa.hash, w: cena.mapa.w, h: cena.mapa.h } : null,
-    tokens: cena.tokens.filter(visivelParaJogadores).map(tokenParaJogador),
+    tokens: cena.tokens.filter(t => visivelParaJogadores(t, cena)).map(tokenParaJogador),
     dificil: cena.dificil || [],
+    nevoa: cena.nevoa?.ativa ? { ativa: true, reveladas: cena.nevoa.reveladas } : { ativa: false, reveladas: [] },
     imagens: (cena.imagens || []).filter(i => !i.oculto).map(i => ({
       id: i.id, hash: j.celular ? i.leve : i.hash, w: i.w, h: i.h, x: i.x, y: i.y, largura: i.largura, rot: i.rot, camada: i.camada,
     })),
@@ -203,7 +216,7 @@ function enviarCena() {
 }
 function enviarToken(cena, t, removido = false) {
   if (!sala || cena.id !== M.ativa) return;
-  if (removido || !visivelParaJogadores(t)) sala.paraTodos({ t: 'tok-fora', id: t.id });
+  if (removido || !visivelParaJogadores(t, cena)) sala.paraTodos({ t: 'tok-fora', id: t.id });
   else sala.paraTodos({ t: 'tok', tok: tokenParaJogador(t) });
 }
 // mudanças de imagem: manda a cena (só se for a que os jogadores estão vendo)
@@ -222,7 +235,7 @@ function ordenarCombate() {
 function combateParaJogadores() {
   const cb = M.combate, c = cenaDoCombate();
   if (!cb || !c || c.id !== M.ativa) return null;
-  const visiveis = new Map(c.tokens.filter(visivelParaJogadores).map(t => [t.id, t]));
+  const visiveis = new Map(c.tokens.filter(t => visivelParaJogadores(t, c)).map(t => [t.id, t]));
   return {
     rodada: cb.rodada, vezId: visiveis.has(cb.vezId) ? cb.vezId : null,
     ordem: cb.ordem.filter(o => visiveis.has(o.id)).map(o => ({ id: o.id, nome: visiveis.get(o.id).nome, ini: o.ini })),
@@ -421,7 +434,10 @@ async function iniciarMestre() {
     podeMover: () => true,
     aoMover: (t, x, y) => {
       const x0 = t.x, y0 = t.y; t.x = x; t.y = y; salvar(); tab.redesenhar();
-      if (cenaAberta().id === M.ativa) sala?.paraTodos({ t: 'mov', id: t.id, x, y });
+      if (cenaAberta().id === M.ativa) {
+        if (cenaAberta().nevoa?.ativa && t.tipo !== 'pc') enviarToken(cenaAberta(), t);
+        else sala?.paraTodos({ t: 'mov', id: t.id, x, y });
+      }
       registrarMovimento(cenaAberta(), t, x0, y0);
     },
     extraDoToken: t => {
@@ -436,6 +452,13 @@ async function iniciarMestre() {
       c.dificil = [...s];
     },
     aoTerminarTerreno: () => { salvar(); enviarCena(); },
+    aoPintarNevoa: (celulas, revelar) => {
+      const n = cenaAberta().nevoa, set = new Set(n.reveladas);
+      for (const k of celulas) { if (revelar) set.add(k); else set.delete(k); }
+      n.reveladas = [...set]; tab.redesenhar();
+    },
+    aoTerminarNevoa: () => { salvar(); enviarCena(); },
+    aoFerramenta: f => { $('#opcoes-nevoa').hidden = f !== 'nevoa'; if (f === 'nevoa') desenharOpcoesNevoa(); },
     aoSelecionar: t => { if (t) abaMestre = 'tokens'; desenharPainelMestre(); },
     aoEditar: t => { tab.selecionado = t.id; tab.imagemSelecionada = null; abaMestre = 'tokens'; desenharPainelMestre(); abrirPainelCelular(); },
     imagemDe: hash => imagensAbertas.get(hash)?.m || null,
@@ -684,6 +707,9 @@ function painelCenas() {
           if (M.ativa === c.id) M.ativa = M.cenas[0].id;
           M.aberta = M.cenas[0].id; salvar(); limparArquivosSemUso(); await abrirCenaNoTabuleiro(); enviarCena(); desenharPainelMestre();
         } })),
+      el('div', { class: 'linha-campos meio' },
+        el('label', { class: 'marcar' }, el('input', { type: 'checkbox', checked: !!c.nevoa?.ativa, onchange: e => ligarNevoa(c, e.target.checked) }), 'Névoa de guerra'),
+        el('button', { class: 'btn pequeno', texto: 'Pintar névoa (N)', onclick: () => escolherFerramenta('nevoa') })),
       progresso),
     el('div', { class: 'bloco cresce' },
       titulo(`Suas cenas (${M.cenas.length})`, el('button', { class: 'btn pequeno', texto: '+ Nova cena', onclick: async () => {
@@ -917,6 +943,25 @@ async function mostrarATodos(im) {
   await abrirVitrine(im.hash, im.nome, true);
   if (!sala) return;
   for (const j of sala.jogadores.values()) sala.enviar(j, { t: 'mostrar', hash: j.celular ? im.leve : im.hash, nome: im.nome });
+}
+
+// ---------- barra de opções da névoa ----------
+function ligarNevoa(c, ligada) {
+  c.nevoa.ativa = ligada; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesNevoa(); atualizarSeAba('cenas');
+}
+function desenharOpcoesNevoa() {
+  const c = cenaAberta(), o = tab.nevoa;
+  const seg = (lista, atual, mudar) => el('div', { class: 'segmentos' }, lista.map(([v, n]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(atual === v), texto: n, onclick: () => { mudar(v); desenharOpcoesNevoa(); } })));
+  $('#opcoes-nevoa').replaceChildren(...[
+    el('label', { class: 'marcar' }, el('input', { type: 'checkbox', checked: !!c.nevoa.ativa, onchange: e => ligarNevoa(c, e.target.checked) }), 'Névoa ligada'),
+    seg([['revelar', 'Revelar'], ['esconder', 'Esconder']], o.acao, v => { o.acao = v; }),
+    seg([['pincel', 'Pincel'], ['retangulo', 'Retângulo']], o.forma, v => { o.forma = v; }),
+    o.forma === 'pincel' ? el('select', { 'aria-label': 'Tamanho do pincel', onchange: e => { o.raio = Number(e.target.value); } },
+      [[0, '1 quadrado'], [1, '3×3'], [2, '5×5'], [3, '7×7']].map(([v, n]) => el('option', { value: v, texto: n, selected: o.raio === v }))) : null,
+    el('button', { class: 'btn pequeno', texto: 'Cobrir tudo', title: 'Esconde de novo tudo o que foi revelado', onclick: () => {
+      if (!confirm('Cobrir a cena inteira com névoa de novo?')) return;
+      c.nevoa.reveladas = []; if (!c.nevoa.ativa) c.nevoa.ativa = true; salvar(); tab.redesenhar(); enviarCena(); desenharOpcoesNevoa();
+    } })].filter(Boolean));
 }
 
 // ---------- aba Combate: iniciativa, turnos e ações do token ----------
@@ -1272,6 +1317,7 @@ function limparCenaRecebida(c) {
     tokens: Array.isArray(c.tokens) ? c.tokens.map(limparToken).filter(Boolean) : [],
     imagens: Array.isArray(c.imagens) ? c.imagens.map(limparImagem).filter(Boolean).slice(0, 500) : [],
     dificil: Array.isArray(c.dificil) ? c.dificil.filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 20000) : [],
+    nevoa: c.nevoa?.ativa ? { ativa: true, reveladas: (Array.isArray(c.nevoa.reveladas) ? c.nevoa.reveladas : []).filter(k => typeof k === 'string' && /^-?\d{1,5},-?\d{1,5}$/.test(k)).slice(0, 200000) } : { ativa: false, reveladas: [] },
   };
 }
 function limparToken(t) {
@@ -1401,7 +1447,13 @@ function tratarMensagemDoMestre(msg) {
     desenharPainelJogador(); return;
   }
   if (msg.t === 'erro') { avisar(String(msg.texto || 'Erro').slice(0, 200), true); return; }
-  if (msg.t === 'combate') { J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador(); return; }
+  if (msg.t === 'combate') {
+    const antes = J.combate;
+    J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador();
+    // combate começou e minha iniciativa ainda não foi rolada: aviso grande
+    if (iniciativaPendente() && !antes) mostrarAvisoIniciativa(); else if (!iniciativaPendente()) $('#aviso-iniciativa').hidden = true;
+    return;
+  }
   const c = J.cena;
   if (msg.t === 'bemvindo' || msg.t === 'cena') { receberCena(msg.cena); return; }
   if (!c) return;
@@ -1493,6 +1545,27 @@ function iniciarJogador(perfil, codigo) {
   });
 }
 
+// ---------- aviso "rolem iniciativa" ----------
+function iniciativaPendente() {
+  const eu = meuToken();
+  return !!(J.combate && eu && J.combate.ordem.some(o => o.id === eu.id && o.ini == null));
+}
+function rolarIniciativaJogador() {
+  const eu = meuToken(); if (!eu) return;
+  $('#aviso-iniciativa').hidden = true;
+  janelaDado.abrir({ titulo: 'Iniciativa', teste: { nome: 'Iniciativa', bonus: eu.ini || 0, tipo: 'iniciativa' },
+    enviar: p => J.conexao.enviar({ t: 'rolar', p, tokenId: eu.id, alvoId: '' }) });
+}
+function mostrarAvisoIniciativa() {
+  const caixa = $('#aviso-iniciativa');
+  caixa.replaceChildren(
+    el('strong', { texto: '⚔ O combate começou!' }),
+    el('span', { texto: 'Role sua iniciativa.' }),
+    el('button', { class: 'btn primario', texto: 'Rolar iniciativa', onclick: rolarIniciativaJogador }),
+    el('button', { class: 'olho', texto: '×', 'aria-label': 'Fechar aviso', title: 'Fechar (o botão de iniciativa continua piscando)', onclick: () => { caixa.hidden = true; } }));
+  caixa.hidden = false;
+}
+
 // tokens da galeria do mestre: o jogador escolhe um; os já escolhidos ficam indisponíveis
 function escolhaDeToken() {
   const itens = J.galeria || [];
@@ -1520,7 +1593,7 @@ function desenharPainelJogador() {
       // a iniciativa do meu token que ainda não foi rolada vira um botão
       const meuSemIni = o.ini == null && meus.some(t => t.id === o.id);
       return el('li', { class: o.id === cb.vezId ? 'vez' : '' }, el('span', { texto: o.nome }),
-        meuSemIni ? el('button', { class: 'btn pequeno primario', texto: 'Rolar iniciativa', onclick: () => rolarTesteJanela('Iniciativa', eu?.ini || 0, 'iniciativa') }) : el('b', { texto: o.ini ?? '—' }));
+        meuSemIni ? el('button', { class: 'btn pequeno primario piscando', texto: 'Rolar iniciativa', onclick: rolarIniciativaJogador }) : el('b', { texto: o.ini ?? '—' }));
     }))) : null;
 
   // botões de token e ficha
@@ -1545,14 +1618,16 @@ function desenharPainelJogador() {
     corpo = abaCombate(eu, {
       alvos, alvoId: J.alvoId, aoMudarAlvo: v => { J.alvoId = v; },
       aoAcao: a => janelaDado.abrir({ titulo: a.nome, acao: a, alvoNome: alvos.find(x => x.id === J.alvoId)?.nome, enviar }),
-      aoTeste: rolarTesteJanela,
+      aoTeste: (nome, bonus, tipo) => (tipo === 'iniciativa' ? rolarIniciativaJogador() : rolarTesteJanela(nome, bonus, tipo)),
+      iniciativaPendente: iniciativaPendente(),
     });
   } else if (J.aba === 'habilidades') corpo = abaHabilidades(eu);
   else corpo = abaPersonagem(eu, {
     podeEditar: true,
     aoVida: (acao, valor) => mudar(acao, { valor }),
     aoRecurso: (recurso, acao) => mudar(acao, { recurso }),
-    aoIniciativa: () => rolarTesteJanela('Iniciativa', eu.ini || 0, 'iniciativa'),
+    aoIniciativa: rolarIniciativaJogador,
+    iniciativaPendente: iniciativaPendente(),
     aoDescanso: tipo => { if (confirm(tipo === 'longo' ? 'Descanso longo: recupera todos os PV e usos. Confirmar?' : 'Descanso curto: recupera os usos de descanso curto. Confirmar?')) mudar('descanso', { tipo }); },
     extras: [
       meus.length > 1 ? el('label', {}, 'Token que você está usando', el('select', { onchange: e => { J.tokenId = e.target.value; desenharPainelJogador(); } },

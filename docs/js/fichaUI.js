@@ -1,9 +1,9 @@
 // fichaUI.js — as abas do personagem no painel: Personagem, Atributos, Combate e Habilidades.
 // Só monta a tela; quem chama decide o que cada botão faz (rolar, gastar um uso, mudar a vida).
-import { el, titulo } from './util.js?v=0.7';
-import { comSinal } from './dados.js?v=0.7';
-import { ATRIBUTOS, RECARGAS } from './fichas.js?v=0.7';
-import { textoMetros } from './tabuleiro.js?v=0.7';
+import { el, titulo } from './util.js?v=0.8';
+import { comSinal } from './dados.js?v=0.8';
+import { ATRIBUTOS, RECARGAS } from './fichas.js?v=0.8';
+import { textoMetros } from './tabuleiro.js?v=0.8';
 
 export const ABAS_FICHA = [['personagem', 'Personagem'], ['atributos', 'Atributos'], ['combate', 'Combate'], ['habilidades', 'Habilidades']];
 
@@ -38,7 +38,7 @@ export function abaPersonagem(t, o = {}) {
         el('button', { class: 'btn pequeno cresce', texto: 'PV temp.', onclick: () => { const v = pegar(); if (v) o.aoVida('temp', v); } })) : null),
     // a Iniciativa vira um botão: clicou, rolou
     el('div', { class: 'numeros' }, numeros.map(([r, v]) => r === 'Iniciativa' && o.aoIniciativa
-      ? el('button', { class: 'num-botao', title: 'Rolar iniciativa', onclick: o.aoIniciativa }, el('small', { texto: 'Iniciativa 🎲' }), el('b', { texto: String(v) }))
+      ? el('button', { class: 'num-botao' + (o.iniciativaPendente ? ' piscando' : ''), title: 'Rolar iniciativa', onclick: o.aoIniciativa }, el('small', { texto: 'Iniciativa 🎲' }), el('b', { texto: String(v) }))
       : el('div', {}, el('small', { texto: r }), el('b', { texto: String(v) })))),
     Object.keys(t.outros || {}).length ? el('p', { class: 'dica', texto: 'Outros deslocamentos: ' + Object.entries(t.outros).map(([k, v]) => `${k} ${textoMetros(v)}`).join(' · ') }) : null,
     // usos de habilidades
@@ -108,7 +108,7 @@ export function abaCombate(t, o) {
           el('span', { class: 'bonus', texto: bonus }));
       }))))
       : [el('p', { class: 'vazio', texto: 'Sem ataques. Carregue a ficha exportada para o tabuleiro.' })]),
-    el('button', { class: 'btn cheio', texto: `Rolar iniciativa (${comSinal(t.ini || 0)})`, onclick: () => o.aoTeste('Iniciativa', t.ini || 0, 'iniciativa') }),
+    el('button', { class: 'btn cheio' + (o.iniciativaPendente ? ' primario piscando' : ''), texto: `Rolar iniciativa (${comSinal(t.ini || 0)})`, onclick: () => o.aoTeste('Iniciativa', t.ini || 0, 'iniciativa') }),
   ];
 }
 

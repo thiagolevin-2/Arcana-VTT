@@ -418,3 +418,17 @@ details.bloco summary{cursor:pointer;color:var(--ouro);font-size:13px;text-trans
 .dado-anim{width:100%}
 .dado-anim:empty{display:none}
 .dado-anim .dice3d-canto .dice3d-stage{height:250px}
+
+/* ---- 0.8: aviso de iniciativa e botões piscando ---- */
+.aviso-iniciativa{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:57;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+  padding:12px 16px;border-radius:14px;background:#2b2715;border:2px solid var(--ouro);box-shadow:0 12px 40px #000a;max-width:calc(100% - 32px);animation:surge .2s ease-out}
+.aviso-iniciativa strong{color:var(--ouro);font-size:17px}
+.piscando{animation:piscar 1s ease-in-out infinite}
+@keyframes piscar{0%,100%{box-shadow:0 0 0 0 #d3bb7c00;border-color:var(--ouro)}50%{box-shadow:0 0 0 5px #d3bb7c88;border-color:#fff3c4;background-color:#3a3418}}
+@media (prefers-reduced-motion:reduce){.piscando{animation:none;outline:3px solid var(--ouro);outline-offset:2px}}
+
+/* ---- 0.8: barra de opções da névoa ---- */
+.opcoes-nevoa{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  padding:8px 10px;border-radius:12px;background:rgba(17,25,20,.95);border:1px solid var(--linha);box-shadow:0 8px 24px #0008;max-width:calc(100% - 24px)}
+.opcoes-nevoa .segmentos{min-width:170px}
+.opcoes-nevoa select{min-height:34px}
