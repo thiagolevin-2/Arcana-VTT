@@ -3,14 +3,15 @@ import { guardar, ler, apagar, chaves, pedirPersistencia, espaco, tamanhoLegivel
 import { importarMapa, carregarMapa, liberarMapa, retratoPequeno, guardarArquivo } from './mapas.js';
 import { criarTabuleiro, estadoDe, celulasDe, custoMovimento, textoMetros } from './tabuleiro.js';
 import { limparFicha, tokenDoMonstro, limparFichaDoToken, limparRecursos } from './fichas.js';
-import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste } from './rolagens.js';
+import { criarJanelaRolagens, criarJanelaDado, linhasDoPedido, rolarLivre, rolarTeste, animacaoDoPedido } from './rolagens.js';
+import { animateDice, diceAnimationsEnabled, setDiceAnimations } from './dice3d.js';
 import { barraDeAbas, abaPersonagem, abaAtributos, abaCombate, abaHabilidades } from './fichaUI.js';
 import { comSinal } from './dados.js';
 import { abrirSala, entrarNaSala, novoCodigo, codigoValido, enviarArquivo, criarReceptor, lerPonte, salvarPonte, testarPonte } from './conexao.js';
 
 import { $, uid, celular, el, avisar, definirStatus, avisoMapa, escolherArquivo, numero, inteiro, corValida, imagemValida, hashValido, TIPOS_IMAGEM, CORES, escolhaDeCor, limitador, titulo } from './util.js';
 
-const VERSAO = '0.5';
+const VERSAO = '0.6';
 
 // ---------- tabuleiro (compartilhado entre mestre e jogador) ----------
 let tab = null, papel = null, mapaAtual = null, hashCarregado = null;
@@ -75,12 +76,30 @@ function fecharVitrine(avisarJogadores = true) {
 let janela = null;     // janela "Rolagens" (histórico)
 let janelaDado = null; // janela do dado: ataque primeiro, dano depois
 
+// Dados 3D (os mesmos da Ficha Arcana), no canto de cima do tabuleiro, para todos.
+function animar(e) {
+  const a = e?.dados3d;
+  if (!a?.dice?.length || !diceAnimationsEnabled()) return;
+  animateDice(a.dice, { label: e.titulo, total: a.total, subtitle: a.subtitle, natural: a.natural, kind: a.kind,
+    criticalThreshold: a.criticalThreshold, alvo: $('#dados3d'), quem: e.quem }).catch(() => {});
+}
+function atualizarBotao3d() {
+  const ligado = diceAnimationsEnabled(), b = $('#btn-3d');
+  b.classList.toggle('ativo', ligado); b.setAttribute('aria-pressed', String(ligado));
+  b.title = ligado ? 'Dados 3D ligados (clique para desligar)' : 'Dados 3D desligados (clique para ligar)';
+}
+
 function prepararTabuleiro(eventos, opcoesRolagens) {
   $('#inicio').hidden = true;
   $('#mesa').hidden = false;
   tab = criarTabuleiro($('#tela'), eventos);
   janela = criarJanelaRolagens($('#rolagens'), opcoesRolagens);
   janelaDado = criarJanelaDado($('#dado'));
+  $('#btn-3d').addEventListener('click', () => {
+    setDiceAnimations(!diceAnimationsEnabled()); atualizarBotao3d();
+    avisar(diceAnimationsEnabled() ? 'Dados 3D ligados.' : 'Dados 3D desligados: os resultados aparecem na hora.');
+  });
+  atualizarBotao3d();
   $('#btn-dados').addEventListener('click', () => { $('#rolagens').classList.toggle('mostrar-celular'); janela.abrir(); });
   const dicas = {
     regua: 'Régua: arraste para medir. Cada quadrado = 1,5 m.',
@@ -257,6 +276,7 @@ let historico = []; // últimas entradas (para quem entra depois)
 function postar(e, { secreta = false } = {}) {
   const entrada = { id: e.id || uid(), linhas: [], ...e, secreta };
   janela?.adicionar(entrada);
+  animar(entrada);
   if (secreta) return entrada;
   historico.push(entrada); if (historico.length > 30) historico.shift();
   sala?.paraTodos({ t: 'rolagem', e: paraJogadores(entrada) });
@@ -268,6 +288,7 @@ const paraJogadores = e => ({ ...e, alvoId: undefined, aplicado: undefined, desf
 const ataquesRecentes = new Map(); // id do ataque -> { acertou, critico, alvoId, secreta }
 function resolverPedido(p, autor, atacante, alvo, secreta = false) {
   const e = { id: p.id, quem: atacante?.nome || autor.nome, cor: atacante?.cor || autor.cor, titulo: p.titulo, linhas: linhasDoPedido(p) };
+  try { e.dados3d = animacaoDoPedido(p); } catch { e.dados3d = null; }
   const ataque = p.tipo === 'dano' && p.ataqueId ? ataquesRecentes.get(p.ataqueId) : null;
   if (ataque) { alvo = tokenPorId(ataque.alvoId)?.t || null; secreta = secreta || ataque.secreta; }
   if (alvo && (p.tipo === 'ataque' || p.tipo === 'dano' || p.cd != null)) { e.alvoId = alvo.id; e.alvoNome = alvo.oculto && !secreta ? 'alvo escondido' : alvo.nome; }
@@ -313,6 +334,12 @@ function desfazerDano(entrada) {
   salvar(); tab.redesenhar(); enviarToken(c, t); atualizarSeAba('tokens', 'combate');
   janela.adicionar(entrada);
 }
+// grupos de dados { lados, valores } que chegam pela rede
+const LADOS = [4, 6, 8, 10, 12, 20, 100];
+function limparGrupos(lista) {
+  return (Array.isArray(lista) ? lista : []).slice(0, 10).filter(g => LADOS.includes(g?.lados))
+    .map(g => ({ lados: g.lados, valores: (Array.isArray(g.valores) ? g.valores : []).slice(0, 40).map(v => inteiro(v, 1, g.lados, 1)) }));
+}
 // Confere um pedido vindo da rede (o jogador rolou no aparelho dele)
 function pedidoValido(p) {
   if (!p || typeof p !== 'object' || !['ataque', 'acao', 'dano', 'teste', 'iniciativa', 'livre'].includes(p.tipo)) return null;
@@ -325,9 +352,10 @@ function pedidoValido(p) {
     const escolhido = inteiro(p.d20.escolhido, 1, 20, 1), bonus = inteiro(p.d20.bonus, -20, 40);
     r.d20 = { valores, escolhido, bonus, total: escolhido + bonus, modo: ['vantagem', 'desvantagem'].includes(p.d20.modo) ? p.d20.modo : 'normal' };
   }
-  for (const d of (Array.isArray(p.danos) ? p.danos : []).slice(0, 10)) r.danos.push({ expr: String(d.expr || '').slice(0, 60), total: inteiro(d.total, 0, 9999), detalhe: String(d.detalhe || '').slice(0, 200), tipo: String(d.tipo || '').slice(0, 30) });
+  for (const d of (Array.isArray(p.danos) ? p.danos : []).slice(0, 10)) r.danos.push({ expr: String(d.expr || '').slice(0, 60), total: inteiro(d.total, 0, 9999), detalhe: String(d.detalhe || '').slice(0, 200), tipo: String(d.tipo || '').slice(0, 30), dados: limparGrupos(d.dados) });
+  r.margem = inteiro(p.margem, 2, 20, 20);
   r.danoTotal = r.danos.reduce((s, x) => s + x.total, 0);
-  if (p.livre) r.livre = { expr: String(p.livre.expr || '').slice(0, 60), total: inteiro(p.livre.total, -9999, 99999), detalhe: String(p.livre.detalhe || '').slice(0, 300) };
+  if (p.livre) r.livre = { expr: String(p.livre.expr || '').slice(0, 60), total: inteiro(p.livre.total, -9999, 99999), detalhe: String(p.livre.detalhe || '').slice(0, 300), dados: limparGrupos(p.livre.dados) };
   return r;
 }
 
@@ -441,7 +469,7 @@ function ligarSala() {
       const c = cenaAtiva();
       sala.enviar(j, { t: 'bemvindo', versao: VERSAO, cena: c ? cenaParaJogador(c, j) : null });
       sala.enviar(j, { t: 'combate', combate: combateParaJogadores() });
-      for (const e of historico.slice(-15)) sala.enviar(j, { t: 'rolagem', e: paraJogadores(e) });
+      for (const e of historico.slice(-15)) sala.enviar(j, { t: 'rolagem', e: paraJogadores(e), antiga: true }); // sem animação
       avisar(`${j.nome} entrou na mesa.`);
       atualizarStatusMestre(); atualizarSeAba('jogadores', 'cenas', 'tokens');
     },
@@ -1103,7 +1131,7 @@ function painelBackup() {
 // =====================================================================
 //                               JOGADOR
 // =====================================================================
-const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null, aba: 'personagem',
+const J = { eu: null, codigo: null, cena: null, conexao: null, esperando: new Set(), vitrine: null, aba: 'personagem', vistas: new Set(),
   ficha: null, modo: 'normal', alvoId: '', tokenId: '', combate: null };
 function lerFichaGuardada() { try { return JSON.parse(localStorage.getItem('arcana-tab-ficha') || 'null'); } catch { return null; } }
 function guardarFicha(f) { try { localStorage.setItem('arcana-tab-ficha', JSON.stringify(f)); } catch { avisar('A ficha é grande demais para guardar neste aparelho; ela vale só para esta sessão.', true); } }
@@ -1165,7 +1193,16 @@ function limparEntrada(e) {
   const t = (v, n) => String(v ?? '').slice(0, n);
   return { id: t(e.id, 64), quem: t(e.quem, 40), cor: corValida(e.cor) || '#a4c29a', titulo: t(e.titulo, 80), alvoNome: e.alvoNome ? t(e.alvoNome, 40) : '',
     linhas: (Array.isArray(e.linhas) ? e.linhas : []).slice(0, 10).map(l => ({ rotulo: t(l?.rotulo, 40), total: t(l?.total, 20), detalhe: t(l?.detalhe, 200) })),
-    resultado: e.resultado ? { texto: t(e.resultado.texto, 40), classe: CLASSES_RESULTADO.includes(e.resultado.classe) ? e.resultado.classe : '' } : null };
+    resultado: e.resultado ? { texto: t(e.resultado.texto, 40), classe: CLASSES_RESULTADO.includes(e.resultado.classe) ? e.resultado.classe : '' } : null,
+    dados3d: limparAnimacao(e.dados3d) };
+}
+function limparAnimacao(a) {
+  if (!a || typeof a !== 'object' || !Array.isArray(a.dice)) return null;
+  const dice = a.dice.slice(0, 24).filter(d => [4, 6, 8, 10, 12, 20].includes(d?.sides))
+    .map(d => ({ sides: d.sides, value: inteiro(d.value, 1, d.sides, 1), selected: !!d.selected, ...(['tens', 'ones'].includes(d.percentile) ? { percentile: d.percentile } : {}) }));
+  if (!dice.length) return null;
+  return { dice, total: String(a.total ?? '').slice(0, 10), natural: a.natural == null ? null : inteiro(a.natural, 1, 20, 1),
+    kind: a.kind === 'attack' ? 'attack' : 'free', criticalThreshold: inteiro(a.criticalThreshold, 2, 20, 20), subtitle: String(a.subtitle || '').slice(0, 60) };
 }
 function limparCombate(c) {
   if (!c || typeof c !== 'object' || !Array.isArray(c.ordem)) return null;
@@ -1230,7 +1267,13 @@ function tratarMensagemDoMestre(msg) {
     return;
   }
   if (msg.t === 'mostrar-fim') { J.vitrine = null; fecharVitrine(false); return; }
-  if (msg.t === 'rolagem') { const e = limparEntrada(msg.e); if (e) { janela.adicionar(e); janelaDado.resultado(e); } return; }
+  if (msg.t === 'rolagem') {
+    const e = limparEntrada(msg.e); if (!e) return;
+    const nova = !J.vistas.has(e.id); J.vistas.add(e.id);
+    janela.adicionar(e); janelaDado.resultado(e);
+    if (nova && !msg.antiga) animar(e);
+    return;
+  }
   if (msg.t === 'erro') { avisar(String(msg.texto || 'Erro').slice(0, 200), true); return; }
   if (msg.t === 'combate') { J.combate = limparCombate(msg.combate); tab.pulsando = !!J.combate; tab.redesenhar(); desenharPainelJogador(); return; }
   const c = J.cena;
@@ -1390,6 +1433,7 @@ function desenharPainelJogador() {
 //                           TELA INICIAL
 // =====================================================================
 // Para os testes automáticos e para estudar no console do navegador (F12).
+document.getElementById('versao').textContent = 'v' + VERSAO;
 window.arcanaTabuleiro = { get tab() { return tab; }, M, J, imagensAbertas };
 
 (async function inicio() {

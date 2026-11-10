@@ -29,16 +29,17 @@ export function analisar(texto) {
 export function rolar(expr, { critico = false } = {}) {
   const termos = analisar(expr);
   let total = 0;
-  const pedacos = [];
+  const pedacos = [], dados = []; // dados: cada grupo rolado { lados, valores } (para a animação 3D)
   for (const t of termos) {
     if (t.valor != null) { total += t.sinal * t.valor; pedacos.push((t.sinal < 0 ? '− ' : '+ ') + t.valor); continue; }
     const n = critico ? t.n * 2 : t.n, valores = Array.from({ length: n }, () => d(t.lados));
     const soma = valores.reduce((a, b) => a + b, 0);
     total += t.sinal * soma;
+    dados.push({ lados: t.lados, valores });
     pedacos.push((t.sinal < 0 ? '− ' : '+ ') + `[${valores.join(', ')}]`);
   }
   const detalhe = pedacos.join(' ').replace(/^\+ /, '');
-  return { expr: String(expr).replace(/\s+/g, ''), total, detalhe };
+  return { expr: String(expr).replace(/\s+/g, ''), total, detalhe, dados };
 }
 
 // d20 com vantagem / desvantagem: devolve { valores, escolhido }

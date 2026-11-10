@@ -322,3 +322,77 @@ details.bloco summary{cursor:pointer;color:var(--ouro);font-size:13px;text-trans
 .dado-caixa .aviso{margin:0 18px}
 @media (max-width:900px){ .mesa.jogador{grid-template-columns:1fr} .atributos{grid-template-columns:repeat(3,1fr)} }
 .bola{border-radius:50%;display:inline-block}
+.versao{font-size:12px;color:var(--apagado);border:1px solid var(--linha);border-radius:6px;padding:1px 6px;white-space:nowrap}
+
+/* ---- 0.6: dados 3D (copiados da Ficha Arcana) ---- */
+.dice3d-overlay{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px;background:#06140ed1;backdrop-filter:blur(9px);isolation:isolate;animation:dice3d-enter .16s ease-out}
+.dice3d-stage{position:relative;width:min(810px,100%);height:min(580px,90dvh);min-height:380px;border:1px solid #ac98526b;border-radius:20px;overflow:hidden;box-shadow:0 36px 120px #0009,0 0 80px #8b9e4210;background:radial-gradient(ellipse at 50% 53%,#294435 0%,#1b3025 46%,#10221a 100%);color:#e8e9d7}
+.dice3d-stage:before,.dice3d-stage:after{content:'';position:absolute;inset:11px;pointer-events:none;border:1px solid #b7a2681d;border-radius:12px}
+.dice3d-stage:after{inset:18px;border-color:#b7a2680c}
+.dice3d-header{position:absolute;left:28px;right:24px;top:22px;display:flex;justify-content:space-between;align-items:center;z-index:2}
+.dice3d-brand{font-family:Georgia,serif;letter-spacing:3.5px;font-size:15px;color:#c3b185}
+.dice3d-skip{font-size:11px;color:#c2cdb5;background:#ffffff07;border:1px solid #9fae8342;border-radius:6px;padding:7px 11px}
+.dice3d-skip:hover{background:#ffffff12;color:#fff}
+.dice3d-skip:focus-visible{outline:2px solid #d1bc82;outline-offset:3px}
+.dice3d-caption{position:absolute;top:83px;left:24px;right:24px;text-align:center;z-index:1;pointer-events:none}
+.dice3d-eyebrow{font-size:8px;letter-spacing:2.1px;color:#9eae8b;text-transform:uppercase}
+.dice3d-title{font-family:Georgia,serif;font-weight:400;font-size:27px;letter-spacing:-.3px;color:#e4e8d5;margin:8px 0 0;text-wrap:balance}
+.dice3d-canvas{display:block;width:100%;height:100%;position:absolute;inset:0;z-index:0}
+.dice3d-result{position:absolute;left:25px;right:25px;bottom:46px;text-align:center;pointer-events:none;z-index:1}
+.dice3d-status{display:block;color:#a5b693;letter-spacing:1.6px;text-transform:uppercase;font-size:8px}
+.dice3d-total{font-family:Georgia,serif;font-size:39px;line-height:1.2;font-weight:400;display:block;max-width:100%;color:#e8d6a1;opacity:0;transform:translateY(7px);transition:opacity .2s,transform .2s;margin-top:4px}
+.dice3d-landed .dice3d-total{opacity:1;transform:translateY(0)}
+.dice3d-note{position:absolute;bottom:18px;left:20px;right:20px;text-align:center;font-size:9px;color:#819477;z-index:1;pointer-events:none}
+.dice3d-landed .dice3d-status{color:#bdcaa8}
+@keyframes dice3d-enter{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
+@media(max-width:900px){.dice3d-stage{height:min(570px,87dvh)}}
+@media(max-width:620px){.dice3d-overlay{padding:12px}.dice3d-stage{height:min(540px,86dvh);min-height:360px;border-radius:16px}.dice3d-header{left:23px;right:20px;top:21px}.dice3d-brand{font-size:13px;letter-spacing:2.7px}.dice3d-skip{font-size:10px;padding:7px 9px}.dice3d-title{font-size:24px}.dice3d-caption{top:81px;left:20px;right:20px}.dice3d-eyebrow{font-size:7px;letter-spacing:1.4px}.dice3d-total{font-size:34px}.dice3d-note{font-size:8px;bottom:17px}.dice3d-result{bottom:43px}}
+@media(max-width:380px){.dice3d-title{font-size:22px}.dice3d-skip{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.dice3d-overlay{animation:none}.dice3d-total{transition:none}}
+@media print{.dice3d-overlay{display:none!important}}
+@media(max-height:450px){.dice3d-overlay{padding:10px}.dice3d-stage{height:calc(100dvh - 20px);min-height:0}.dice3d-header{top:16px}.dice3d-caption{top:55px}.dice3d-title{font-size:21px;margin-top:4px}.dice3d-result{bottom:28px}.dice3d-total{font-size:28px}.dice3d-note{bottom:10px;font-size:7px}}
+.dice3d-stage{border-color:#c0a261a6;box-shadow:0 36px 120px #0009,0 0 70px #b99b3d17}
+.dice3d-stage:before{border-color:#b7a26840}
+.dice3d-stage:after{inset:20px;border-radius:26% 26% 20px 20px;border-color:#b7a26824}
+.dice3d-caption{top:71px}
+.dice3d-title{font-size:25px}
+.dice3d-free-label{display:block;margin-top:9px;font-size:8px;letter-spacing:1.8px;color:#b8bf9e}
+.dice3d-dc-label{display:block;font-size:8px;letter-spacing:1.5px;color:#d3ccaf;margin-top:7px}
+.dice3d-dc{font:24px Georgia,serif;color:#fff3ce;display:block}
+.dice3d-result{bottom:44px}
+.dice3d-status{font-size:8px}
+.dice3d-outcome{display:none;font:22px Georgia,serif;letter-spacing:1.2px;color:#e8d6a1;margin-top:4px}
+.dice3d-landed .dice3d-outcome{display:block;animation:fade .2s}
+.dice3d-total{font-size:36px;margin-top:2px}
+.dice3d-critical .dice3d-stage,.dice3d-natural20 .dice3d-stage{border-color:#edcd7b;box-shadow:0 0 80px #d8b95633,0 36px 120px #0009}
+.dice3d-critical .dice3d-outcome,.dice3d-natural20 .dice3d-outcome{color:#ffe7a0;text-shadow:0 0 18px #dbb85b99}
+.dice3d-failure .dice3d-outcome,.dice3d-natural1 .dice3d-outcome{color:#f3ad9c}
+.dice3d-failure .dice3d-stage,.dice3d-natural1 .dice3d-stage{border-color:#c38665}
+.dice3d-success .dice3d-outcome{color:#d0e7b7}
+@media(max-width:620px){.dice3d-outcome{font-size:19px}.dice3d-title{font-size:22px}.dice3d-dc{font-size:20px}.dice3d-caption{top:72px}.dice3d-total{font-size:31px}.dice3d-free-label{font-size:7px;letter-spacing:1px}}
+@media(max-height:450px){.dice3d-caption{top:50px}.dice3d-title{font-size:17px}.dice3d-dc-label,.dice3d-free-label{margin-top:3px;font-size:6px}.dice3d-dc{font-size:17px}.dice3d-outcome{font-size:15px}.dice3d-total{font-size:24px}.dice3d-result{bottom:22px}}
+/* no tabuleiro, a animação fica no canto de cima, sem cobrir a tela */
+.dados3d-canto{position:absolute;left:10px;top:10px;z-index:7;width:min(380px,calc(100% - 20px));pointer-events:none}
+.dados3d-canto:empty{display:none}
+.dice3d-overlay.dice3d-canto{position:relative;inset:auto;display:block;padding:0;background:none;backdrop-filter:none;z-index:auto}
+.dice3d-canto .dice3d-stage{width:100%;height:270px;min-height:0;border-radius:14px;box-shadow:0 14px 40px #000a}
+.dice3d-canto .dice3d-stage:before{inset:7px}.dice3d-canto .dice3d-stage:after{inset:12px}
+.dice3d-canto .dice3d-header{left:16px;right:12px;top:12px}
+.dice3d-canto .dice3d-brand{font-size:11px;letter-spacing:2px;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dice3d-canto .dice3d-skip{pointer-events:auto;font-size:10px;padding:5px 8px}
+.dice3d-canto .dice3d-caption{top:40px;left:14px;right:14px}
+.dice3d-canto .dice3d-eyebrow{font-size:8px}
+.dice3d-canto .dice3d-title{font-size:17px;margin-top:3px}
+.dice3d-canto .dice3d-dc-label,.dice3d-canto .dice3d-free-label,.dice3d-canto .dice3d-dc,.dice3d-canto .dice3d-note{display:none}
+.dice3d-canto .dice3d-result{bottom:16px}
+.dice3d-canto .dice3d-total{font-size:30px}
+@media (max-width:900px){.dados3d-canto{width:min(320px,calc(100% - 20px))}.dice3d-canto .dice3d-stage{height:220px}}
+/* escolha do modo antes de rolar */
+.escolha-modo{display:grid;gap:8px;width:100%}
+.btn-modo{display:grid;gap:2px;justify-items:center;padding:12px;border-radius:12px;border:1px solid var(--linha);background:#16211b;cursor:pointer;transition:border-color .15s,transform .1s}
+.btn-modo:hover{border-color:var(--ouro)}.btn-modo:active{transform:translateY(1px)}
+.btn-modo strong{font-size:17px}.btn-modo small{color:var(--apagado)}
+.btn-modo.principal{border-color:var(--verde);background:var(--verde-fundo)}
+.dado-total.rolando b{animation:pulsar 1s ease-in-out infinite;color:var(--ouro)}
+@keyframes pulsar{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dado-total.rolando b{animation:none}}
