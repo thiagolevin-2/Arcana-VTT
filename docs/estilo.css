@@ -1,0 +1,119 @@
+/* estilo.css — cores no mesmo tom do modo noturno da Ficha Arcana */
+:root{
+  --bg:#111914; --papel:#1b2820; --papel2:#22322a; --tinta:#e5eadf; --apagado:#a1ad9e;
+  --linha:#36463a; --verde:#a4c29a; --verde-fundo:#293a2e; --ouro:#d3bb7c; --vermelho:#e18b82;
+  --raio:12px; --barra:52px; --lateral:340px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tinta);
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+[hidden]{display:none!important}
+h1,h2,h3{margin:0;line-height:1.2}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ouro);outline-offset:2px}
+
+/* botões e campos */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;
+  border-radius:10px;border:1px solid var(--linha);background:var(--papel2);cursor:pointer;
+  transition:background .15s,transform .1s,border-color .15s}
+.btn:hover{background:#2b3e33;border-color:#4a5f4f}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primario{background:var(--verde);color:#122016;border-color:var(--verde);font-weight:650}
+.btn.primario:hover{background:#b6d3ac}
+.btn.perigo{color:var(--vermelho)}
+.btn.pequeno{min-height:34px;padding:0 10px;font-size:14px}
+.btn.cheio{width:100%}
+label{display:grid;gap:4px;font-size:13px;color:var(--apagado)}
+label.linha{display:flex;align-items:center;gap:10px}
+label.marcar{display:flex;align-items:center;gap:8px;color:var(--tinta);font-size:14px}
+input,select{min-height:38px;padding:6px 10px;border-radius:9px;border:1px solid var(--linha);background:#0f1612;color:var(--tinta)}
+input[type=color]{padding:2px;width:46px;min-height:34px;cursor:pointer}
+input[type=checkbox]{min-height:auto;width:18px;height:18px;accent-color:var(--verde)}
+input[type=range]{padding:0;accent-color:var(--verde)}
+.dica{color:var(--apagado);font-size:13px;margin:6px 0 0}
+
+/* tela inicial */
+.inicio{min-height:100%;display:grid;align-content:center;gap:28px;padding:32px 16px;max-width:880px;margin:0 auto}
+.inicio-topo h1{font-size:clamp(30px,5vw,44px);color:var(--ouro);letter-spacing:.01em}
+.inicio-topo p{color:var(--apagado);max-width:560px;margin:10px 0 0}
+.inicio-cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.cartao{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);padding:22px;display:grid;gap:14px;align-content:start}
+.cartao p{margin:0;color:var(--apagado)}
+.cartao form{display:grid;gap:12px}
+
+/* mesa */
+.mesa{position:fixed;inset:0;display:grid;grid-template:var(--barra) 1fr / 56px 1fr var(--lateral);
+  grid-template-areas:"barra barra barra" "ferr palco painel"}
+.mesa.jogador{grid-template-columns:56px 1fr 260px}
+.barra{grid-area:barra;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--papel);border-bottom:1px solid var(--linha);min-width:0}
+.marca{color:var(--ouro);font-size:16px;white-space:nowrap}
+.espaco{flex:1}
+.chip{border:1px dashed var(--ouro);background:transparent;color:var(--ouro);border-radius:8px;padding:4px 10px;
+  font-weight:700;letter-spacing:.12em;cursor:pointer;min-height:32px}
+.chip:hover{background:#2b2a1d}
+.status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--apagado);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.status i{width:9px;height:9px;border-radius:50%;background:#777;flex:none}
+.status.on i{background:#6fbf73}.status.espera i{background:var(--ouro)}.status.off i{background:var(--vermelho)}
+.ferramentas{grid-area:ferr;display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--papel);border-right:1px solid var(--linha)}
+.ferramentas button{width:40px;height:40px;border-radius:10px;border:1px solid transparent;background:transparent;cursor:pointer;display:grid;place-items:center}
+.ferramentas button:hover{background:var(--papel2)}
+.ferramentas button.ativo{background:var(--verde-fundo);border-color:var(--verde)}
+.ferramentas svg{width:22px;height:22px;fill:var(--tinta);stroke:var(--tinta);stroke-width:1.4;stroke-linejoin:round}
+.ferramentas button.ativo svg{fill:var(--verde);stroke:var(--verde)}
+.palco{grid-area:palco;position:relative;overflow:hidden;min-width:0}
+#tela{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;display:block}
+.aviso-mapa{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(17,25,20,.94);border:1px solid var(--linha);
+  border-radius:10px;padding:10px 14px;min-width:240px;max-width:calc(100% - 32px);text-align:center;font-size:14px}
+.barra-progresso{height:6px;border-radius:3px;background:#0b100d;margin-top:8px;overflow:hidden}
+.barra-progresso b{display:block;height:100%;background:var(--verde);width:0;transition:width .2s}
+.dica-ferramenta{position:absolute;left:12px;bottom:12px;background:rgba(17,25,20,.92);border:1px solid var(--linha);border-radius:9px;padding:8px 12px;font-size:13px;max-width:calc(100% - 24px)}
+
+/* painel lateral */
+.painel{grid-area:painel;background:var(--papel);border-left:1px solid var(--linha);display:flex;flex-direction:column;min-height:0;min-width:0}
+.abas{display:flex;flex-wrap:wrap;gap:4px;padding:8px;border-bottom:1px solid var(--linha)}
+.abas button{flex:1 1 auto;min-height:34px;padding:0 8px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;color:var(--apagado);font-size:13px}
+.abas button:hover{color:var(--tinta);background:var(--papel2)}
+.abas button[aria-selected=true]{color:var(--tinta);background:var(--verde-fundo);border-color:var(--linha)}
+.conteudo{flex:1;overflow:auto;padding:14px;display:grid;gap:16px;align-content:start}
+.bloco{display:grid;gap:10px}
+.bloco h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--ouro)}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.lista{display:grid;gap:6px}
+.item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--linha);background:#16211b;cursor:pointer;min-height:44px;text-align:left;width:100%}
+.item:hover{border-color:#4a5f4f;background:#1c2a22}
+.item.sel{border-color:var(--ouro);background:#262719}
+.item .nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .bola{width:12px;height:12px;border-radius:50%;flex:none}
+.etiqueta{font-size:11px;padding:2px 7px;border-radius:20px;background:var(--verde-fundo);color:var(--verde);white-space:nowrap}
+.etiqueta.ouro{background:#33301f;color:var(--ouro)}
+.etiqueta.cinza{background:#2a2f2c;color:var(--apagado)}
+.olho{border:0;background:transparent;cursor:pointer;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--apagado)}
+.olho:hover{background:var(--papel2);color:var(--tinta)}
+.vazio{color:var(--apagado);font-size:14px;margin:0}
+.retrato-previa{width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--linha)}
+
+/* avisos rápidos */
+.avisos{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:grid;gap:8px;z-index:50;pointer-events:none;width:min(420px,calc(100% - 32px))}
+.aviso{background:#22322a;border:1px solid var(--linha);border-radius:10px;padding:10px 14px;box-shadow:0 8px 30px #0006;font-size:14px;animation:surge .2s ease-out}
+.aviso.erro{border-color:var(--vermelho);color:#ffd9d4}
+@keyframes surge{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.so-celular{display:none}
+.mesa.jogador .so-mestre{display:none}
+
+/* celular / tela estreita */
+@media (max-width:900px){
+  .mesa,.mesa.jogador{grid-template:var(--barra) 1fr 60px / 1fr;grid-template-areas:"barra" "palco" "ferr"}
+  .ferramentas{flex-direction:row;justify-content:center;border-right:0;border-top:1px solid var(--linha);padding:8px;position:relative;z-index:30}
+  .ferramentas button{width:44px;height:44px}
+  .painel{position:fixed;left:0;right:0;bottom:60px;top:var(--barra);z-index:20;border-left:0;
+    transform:translateY(calc(100% + 80px));visibility:hidden;transition:transform .2s,visibility .2s}
+  .painel.aberto{transform:none;visibility:visible}
+  .so-celular{display:inline-flex}
+  .marca{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

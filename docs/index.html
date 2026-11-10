@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arcana Tabuleiro</title>
+<meta name="description" content="Tabuleiro virtual para jogar D&D com os amigos: mapa, grade, tokens, régua e ping ao vivo.">
+<meta name="theme-color" content="#111914">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="estilo.css?v=0.1">
+</head>
+<body>
+
+<!-- Tela inicial: escolher entre mestre e jogador -->
+<main id="inicio" class="inicio">
+  <div class="inicio-topo">
+    <h1>Arcana Tabuleiro</h1>
+    <p>Mapa, grade e tokens ao vivo para a sua mesa de D&amp;D. Sem conta: o mestre cria a sala e passa o código.</p>
+  </div>
+  <div class="inicio-cartoes">
+    <section class="cartao">
+      <h2>Sou o mestre</h2>
+      <p>Prepare as cenas e abra a sala. Ela fica no ar enquanto esta página estiver aberta.</p>
+      <button id="btn-mestre" class="btn primario">Abrir minha sala</button>
+      <p id="mestre-info" class="dica"></p>
+    </section>
+    <section class="cartao">
+      <h2>Sou jogador</h2>
+      <form id="form-jogador">
+        <label>Seu nome<input id="j-nome" maxlength="40" required autocomplete="nickname"></label>
+        <label>Código da sala<input id="j-codigo" maxlength="6" required autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+        <label class="linha">Sua cor<input id="j-cor" type="color" value="#a4c29a"></label>
+        <button class="btn primario" type="submit">Entrar na mesa</button>
+      </form>
+    </section>
+  </div>
+</main>
+
+<!-- Tela do tabuleiro (mestre e jogador) -->
+<div id="mesa" class="mesa" hidden>
+  <header class="barra">
+    <strong class="marca">Arcana Tabuleiro</strong>
+    <button id="chip-codigo" class="chip" type="button" title="Copiar o código"></button>
+    <span id="status" class="status"><i></i><span></span></span>
+    <span class="espaco"></span>
+    <button id="btn-painel" class="btn pequeno so-celular" type="button" aria-expanded="false">Painel</button>
+    <button id="btn-sair" class="btn pequeno" type="button">Sair</button>
+  </header>
+
+  <nav class="ferramentas" aria-label="Ferramentas">
+    <button data-ferramenta="mover" class="ativo" title="Mover e selecionar (V)" aria-label="Mover">
+      <svg viewBox="0 0 24 24"><path d="M12 2l3 3h-2v6h6V9l3 3-3 3v-2h-6v6h2l-3 3-3-3h2v-6H5v2l-3-3 3-3v2h6V5H9z"/></svg></button>
+    <button data-ferramenta="regua" title="Régua (R)" aria-label="Régua">
+      <svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2"/></svg></button>
+    <button data-ferramenta="ping" title="Ping: mostrar um ponto a todos (P ou Shift+clique)" aria-label="Ping">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" fill="none"/></svg></button>
+    <button data-ferramenta="grade" class="so-mestre" title="Medir um quadrado do mapa para ajustar a grade (G)" aria-label="Ajustar grade">
+      <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3zM9 3v18M15 3v18M3 9h18M3 15h18" fill="none"/></svg></button>
+    <button id="btn-enquadrar" title="Ver o mapa inteiro (F)" aria-label="Ver o mapa inteiro">
+      <svg viewBox="0 0 24 24"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6" fill="none"/></svg></button>
+  </nav>
+
+  <div class="palco">
+    <canvas id="tela" aria-label="Tabuleiro"></canvas>
+    <div id="aviso-mapa" class="aviso-mapa" hidden></div>
+    <div id="dica-ferramenta" class="dica-ferramenta" hidden></div>
+  </div>
+
+  <aside id="painel" class="painel" aria-label="Painel"></aside>
+</div>
+
+<div id="avisos" class="avisos" role="status" aria-live="polite"></div>
+
+<script src="vendor/peerjs-1.5.4.min.js?v=0.1"></script>
+<script type="module" src="js/app.js?v=0.1"></script>
+</body>
+</html>
