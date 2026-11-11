@@ -2,9 +2,9 @@
 // Coordenadas do "mundo" = pixels do mapa original. A "câmera" (vista) diz
 // qual pedaço do mundo aparece na tela e com que zoom.
 
-import { calcularVisao, comoVe, caminhoDoPoligono, distanciaAoSegmento, simplificarCurva } from './visao.js?v=1.0.2';
-import { geometria, atingidos, FORMAS } from './moldes.js?v=1.0.2';
-import { CONDICAO } from './condicoes.js?v=1.0.2';
+import { calcularVisao, comoVe, caminhoDoPoligono, distanciaAoSegmento, simplificarCurva } from './visao.js?v=0.13';
+import { geometria, atingidos, FORMAS } from './moldes.js?v=0.13';
+import { CONDICAO } from './condicoes.js?v=0.13';
 
 export const METROS_POR_QUADRADO = 1.5;
 
@@ -141,7 +141,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
     precisa = true;
   };
   api.mostrarRegua = (id, a, b, cor, nome) => {
-    if (!a) reguas.delete(id); else reguas.set(id, { a, b, cor, nome });
+    const ok = p => p && Number.isFinite(p.cx) && Number.isFinite(p.cy);
+    if (!ok(a) || !ok(b)) reguas.delete(id); else reguas.set(id, { a, b, cor, nome });
     precisa = true;
   };
 
@@ -306,9 +307,29 @@ export function criarTabuleiro(canvas, eventos = {}) {
       arrasto.pontos.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y))); g.stroke();
     }
     const de = api.paredes.modo === 'parede' ? api.cadeia : arrasto?.tipo === 'porta' ? arrasto.a : null;
-    if (de) { g.strokeStyle = api.paredes.modo === 'porta' ? '#c88a3a' : '#e8a046'; g.lineWidth = 3 * px; g.setLineDash([8 * px, 6 * px]); g.beginPath(); g.moveTo(de.x, de.y); g.lineTo(p.x, p.y); g.stroke(); }
+    if (de) { g.strokeStyle = api.paredes.modo === 'trancada' ? '#e0645a' : api.paredes.modo === 'porta' ? '#c88a3a' : '#e8a046'; g.lineWidth = 3 * px; g.setLineDash([8 * px, 6 * px]); g.beginPath(); g.moveTo(de.x, de.y); g.lineTo(p.x, p.y); g.stroke(); }
     g.restore();
   }
+  // ponto de início dos jogadores: uma bandeira dourada no quadrado (só o mestre vê)
+  function desenharInicio(cel, previa = false) {
+    if (!cel) return;
+    const q = grade(), c = centroCelula(cel.cx, cel.cy), px = 1 / vista.escala, r = q.tam * 0.44;
+    g.save();
+    g.globalAlpha = previa ? 0.55 : 1;
+    g.fillStyle = 'rgba(211,187,124,.2)'; g.strokeStyle = '#d3bb7c'; g.lineWidth = 2.5 * px; g.setLineDash([7 * px, 5 * px]);
+    g.beginPath(); g.arc(c.x, c.y, r, 0, Math.PI * 2); g.fill(); g.stroke(); g.setLineDash([]);
+    const h = q.tam * 0.5, x0 = c.x - h * 0.2, y0 = c.y - h * 0.5;
+    g.strokeStyle = '#f3ead2'; g.lineWidth = Math.max(2 * px, q.tam * 0.04); g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x0, y0 + h); g.lineTo(x0, y0); g.stroke();
+    g.fillStyle = '#d3bb7c'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + h * 0.62, y0 + h * 0.2); g.lineTo(x0, y0 + h * 0.4); g.closePath(); g.fill();
+    const tam = Math.max(10 * px, q.tam * 0.17);
+    g.font = `700 ${tam}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'top';
+    const texto = 'Início', w = g.measureText(texto).width + tam * 0.8;
+    g.fillStyle = 'rgba(17,25,20,.85)'; g.fillRect(c.x - w / 2, c.y + r + 2 * px, w, tam * 1.35);
+    g.fillStyle = '#f3ead2'; g.fillText(texto, c.x, c.y + r + 2 * px + tam * 0.18);
+    g.restore();
+  }
+  const mesmaCelula = (a, b) => !!a && !!b && a.cx === b.cx && a.cy === b.cy;
   // escuridão mágica: o jogador vê preto (por cima de tudo, até dos tokens); o mestre vê uma mancha roxa
   function desenharEscuridao() {
     const lista = eventos.escuridoesParaDesenhar?.() || [];
@@ -642,8 +663,17 @@ export function criarTabuleiro(canvas, eventos = {}) {
     rotulo((nome ? nome + ': ' : '') + (textoPronto || textoDistancia(q)), cb.x, cb.y + 12 * px, 14 * px, 'rgba(17,25,20,.92)', cor);
   }
 
+  let ultimoErroQuadro = '';
   function quadro(agora) {
     requestAnimationFrame(quadro);
+    try { desenharQuadro(agora); } catch (e) {
+      try { g.restore(); } catch {}
+      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.setLineDash([]);
+      const m = String(e?.message || e);
+      if (m !== ultimoErroQuadro) { ultimoErroQuadro = m; console.error('Erro ao desenhar o tabuleiro:', e); }
+    }
+  }
+  function desenharQuadro(agora) {
     const animando = pings.length > 0 || lasers.size > 0 || api.pulsando || sumindo.size > 0;
     if (!precisa && !animando) return;
     precisa = false;
@@ -667,6 +697,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     const visao = cfgVisao ? calcularVisao(cfgVisao) : null;
     visaoAtual = visao;
     if (visao) { explorar(visao); copiar(bufFundo); }
+    if (api.ehMestre && cena.inicio && !(arrasto?.tipo === 'inicio' && arrasto.mover)) desenharInicio(cena.inicio);
     for (const t of cena.tokens) {
       if (arrasto?.tipo === 'token' && arrasto.token.id === t.id && arrasto.mexeu) continue;
       desenharToken(t);
@@ -713,6 +744,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
       for (const t of cena.tokens) if (eventos.ehMeu?.(t)) desenharToken(t); // você sempre sabe onde está
     } else if (temEscuridao) for (const t of cena.tokens) if (eventos.ehMeu?.(t)) desenharToken(t);
     if (api.ehMestre) desenharEscuridao();
+    if (arrasto?.tipo === 'inicio') desenharInicio(arrasto.cel, !arrasto.mover || !arrasto.mexeu ? true : false);
+    else if (api.ehMestre && api.ferramenta === 'inicio' && api.cursor && !celularToque) desenharInicio(celulaEm(api.cursor.x, api.cursor.y), true);
     for (const m of cena.moldes || []) desenharMolde(m);
     if (arrasto?.tipo === 'molde') desenharMolde(moldeDoArrasto(arrasto.a, arrasto.b), true);
     else if (api.ferramenta === 'molde' && api.cursor && !arrasto && !celularToque) {
@@ -801,6 +834,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
       api.mostrarLaser('eu', w.x, w.y, api.corPropria); eventos.aoLaser?.(w.x, w.y);
       arrasto = { tipo: 'laser', ...inicio }; return;
     }
+    if (api.ferramenta === 'inicio' && cena) { arrasto = { tipo: 'inicio', ...inicio, cel: celulaEm(w.x, w.y) }; precisa = true; return; }
     if (api.ferramenta === 'paredes' && cena) {
       const m = api.paredes.modo, p = pontoParede(w);
       if (e.button === 2 || e.button === 1) { api.cadeia = null; precisa = true; return; }
@@ -811,6 +845,11 @@ export function criarTabuleiro(canvas, eventos = {}) {
       }
       if (m === 'curva') { arrasto = { tipo: 'curva', ...inicio, pontos: [p] }; precisa = true; return; }
       if (m === 'porta') { arrasto = { tipo: 'porta', ...inicio, a: p }; precisa = true; return; }
+      if (m === 'trancada') {
+        // clicar numa porta que já existe tranca/destranca; em outro lugar, desenha uma porta já trancada
+        const porta = portaEm(w); if (porta) { eventos.aoTrancar?.(porta); return; }
+        arrasto = { tipo: 'porta', ...inicio, a: p, trancada: true }; precisa = true; return;
+      }
       if (m === 'luz') { eventos.aoNovaLuz?.(w.x, w.y); return; }
       if (m === 'escuridao') { eventos.aoNovaEscuridao?.(w.x, w.y); return; }
       if (m === 'apagar') {
@@ -862,6 +901,7 @@ export function criarTabuleiro(canvas, eventos = {}) {
     }
     if (api.ferramenta === 'grade') { arrasto = { tipo: 'grade', ...inicio, a: w, b: null }; return; }
     const t = tokenEm(w.x, w.y);
+    if (!t && api.ehMestre && api.ferramenta === 'mover' && mesmaCelula(cena?.inicio, celulaEm(w.x, w.y))) { arrasto = { tipo: 'inicio', ...inicio, cel: { ...cena.inicio }, mover: true }; precisa = true; return; }
     const sel = api.ehMestre && (cena?.imagens || []).find(i => i.id === api.imagemSelecionada);
     const im = !t && api.ehMestre ? imagemEm(w.x, w.y) : null;
     if (t && eventos.podeMover?.(t)) {
@@ -914,6 +954,8 @@ export function criarTabuleiro(canvas, eventos = {}) {
       const im = arrasto.img, { lx, ly } = paraLocal(im, w.x, w.y);
       im.largura = Math.max(16 / vista.escala, 2 * Math.max(lx, ly * im.w / im.h));
       precisa = true;
+    } else if (arrasto.tipo === 'inicio') {
+      arrasto.cel = celulaEm(w.x, w.y); precisa = true;
     } else if (arrasto.tipo === 'porta') {
       precisa = true;
     } else if (arrasto.tipo === 'curva') {
@@ -964,7 +1006,9 @@ export function criarTabuleiro(canvas, eventos = {}) {
       }
     } else if (a.tipo === 'porta') {
       const b = pontoParede(api.cursor || a.a);
-      if (Math.hypot(b.x - a.a.x, b.y - a.a.y) > 3 / vista.escala) eventos.aoNovaParede?.(a.a, b, 'porta');
+      if (Math.hypot(b.x - a.a.x, b.y - a.a.y) > 3 / vista.escala) eventos.aoNovaParede?.(a.a, b, 'porta', !!a.trancada);
+    } else if (a.tipo === 'inicio') {
+      if (!a.mover || (a.mexeu && !mesmaCelula(a.cel, cena?.inicio))) eventos.aoInicio?.(a.cel);
     } else if (a.tipo === 'curva') {
       const q = grade(), fim = pontoParede(api.cursor || a.pontos[a.pontos.length - 1]);
       const pts = simplificarCurva([...a.pontos, fim], Math.max(6 / vista.escala, q.tam * 0.2));

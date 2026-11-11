@@ -1,10 +1,10 @@
 // fichaUI.js — as abas do personagem no painel: Personagem, Atributos, Combate e Habilidades.
 // Só monta a tela; quem chama decide o que cada botão faz (rolar, gastar um uso, mudar a vida).
-import { el, titulo } from './util.js?v=1.0.2';
-import { comSinal } from './dados.js?v=1.0.2';
-import { ATRIBUTOS, RECARGAS } from './fichas.js?v=1.0.2';
-import { textoMetros } from './tabuleiro.js?v=1.0.2';
-import { CONDICOES, EXAUSTAO } from './condicoes.js?v=1.0.2';
+import { el, titulo } from './util.js?v=0.13';
+import { comSinal } from './dados.js?v=0.13';
+import { ATRIBUTOS, RECARGAS } from './fichas.js?v=0.13';
+import { textoMetros } from './tabuleiro.js?v=0.13';
+import { CONDICOES, EXAUSTAO } from './condicoes.js?v=0.13';
 
 export const ABAS_FICHA = [['personagem', 'Personagem'], ['atributos', 'Atributos'], ['combate', 'Combate'], ['habilidades', 'Habilidades']];
 

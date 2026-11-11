@@ -178,11 +178,13 @@ export function abrirSala(codigo, eventos) {
         if (msg.t === 'oi') return;
         if (msg.t === 'tchau') { if (j) sair(conn); return; }
         if (msg.t === 'ola') {
+          if (j) return;
           j = {
             conn,
             id: String(msg.id || conn.peer).slice(0, 64),
             nome: String(msg.nome || 'Jogador').slice(0, 40),
             celular: !!msg.celular,
+            espectador: !!msg.espectador,
             cor: /^#[0-9a-f]{6}$/i.test(msg.cor) ? msg.cor : '#a4c29a',
             ultimo: Date.now(),
           };

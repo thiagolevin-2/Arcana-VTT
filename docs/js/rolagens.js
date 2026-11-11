@@ -5,9 +5,9 @@
 // O mestre confere contra a CA do alvo (que os jogadores não veem) e devolve a "entrada" pronta.
 // O ataque é rolado primeiro; o dano vem depois, num segundo clique — igual à ficha.
 // Antes de rolar um d20, a pessoa escolhe: Normal, Vantagem ou Desvantagem.
-import { rolar, rolarD20, comSinal } from './dados.js?v=1.0.2';
-import { el, uid } from './util.js?v=1.0.2';
-import { diceFromValues } from './dice-geometry.js?v=1.0.2';
+import { rolar, rolarD20, comSinal } from './dados.js?v=0.13';
+import { el, uid } from './util.js?v=0.13';
+import { diceFromValues } from './dice-geometry.js?v=0.13';
 
 // ---------- cálculos ----------
 export function rolarAtaque(acao, modo = 'normal') {
@@ -207,7 +207,7 @@ export function criarJanelaRolagens(raiz, o) {
   const rolarCampo = () => { const v = campo.value.trim(); if (!v) return; if (o.aoRolarLivre(v, !!secreta?.checked) !== false) campo.value = ''; };
   campo.addEventListener('keydown', e => { if (e.key === 'Enter') rolarCampo(); });
   const corpo = el('div', { class: 'rolagens-corpo' }, lista,
-    el('div', { class: 'rolagens-campo' }, campo,
+    !o.aoRolarLivre ? null : el('div', { class: 'rolagens-campo' }, campo,
       secreta ? el('label', { class: 'marcar pequena', title: 'Só você vê' }, secreta, 'Secreta') : null,
       el('button', { class: 'btn pequeno primario', texto: 'Rolar', onclick: rolarCampo })));
   const botaoAbrir = el('button', { class: 'rolagens-topo', type: 'button', 'aria-expanded': 'true' }, el('strong', { texto: 'Rolagens' }), el('span', { class: 'seta', texto: '▾' }));
